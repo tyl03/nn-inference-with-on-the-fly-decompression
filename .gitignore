@@ -1,0 +1,30 @@
+# Python virtual environments
+.venv/
+myenv/
+venv/
+env/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+
+# VS Code (optional)
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter (if you later use notebooks)
+.ipynb_checkpoints/
+
+# PyTorch / model artifacts (optional)
+*.pt
+*.pth
+*.onnx
+
+# Logs / outputs
+logs/
+outputs/
+results/
