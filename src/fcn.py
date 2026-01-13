@@ -1,6 +1,9 @@
+"""
+Defines the neural network.
+"""
+
 import torch
 import torch.nn as nn
-
 
 class FCN(nn.Module):
     """
