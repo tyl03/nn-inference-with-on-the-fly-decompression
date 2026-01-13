@@ -39,5 +39,19 @@ python scripts\test.py
 
 ## Project Structure
 
-src/ # Core project code (quantization, inference logic)
-scripts/ # Runnable scripts and sanity checks
+```text
+.
+├── src/
+│   └── quantization.py
+├── scripts/
+│   └── test.py
+├── requirements.txt
+├── README.md
+└── .gitignore
+```
+
+---
+
+## Continous Integration
+
+This project uses GitHub Actions to automatically verify that the code runs on a clean environment. On each push, the workflow installs dependencies from `requirements.txt` and executes a small test script to ensure that the project is reproducible and free of setup errors.
