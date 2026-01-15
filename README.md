@@ -55,3 +55,24 @@ python scripts\test.py
 ## Continous Integration
 
 This project uses GitHub Actions to automatically verify that the code runs on a clean environment. On each push, the workflow installs dependencies from `requirements.txt` and executes a small test script to ensure that the project is reproducible and free of setup errors.
+
+---
+
+## Running scripts
+
+Run all scripts from the project root using:
+
+```python
+python -m scripts.train_mnist
+python -m scripts.pipeline
+```
+
+---
+
+## Running tests
+
+To run all tests from the project root:
+
+```python
+python -m pytest -q
+```
