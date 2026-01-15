@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from fcn import FCN
+from src.fcn import FCN
 
 
 def get_device() -> torch.device:
