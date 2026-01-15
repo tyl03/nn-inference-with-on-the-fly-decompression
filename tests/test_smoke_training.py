@@ -48,5 +48,7 @@ def test_training_and_eval_runs_on_small_subset(tmp_path):
     # Sanity Checks
     assert isinstance(train_loss, float)
     assert isinstance(test_loss, float)
+    assert train_loss >= 0.0
+    assert test_loss >= 0.0
     assert 0.0 <= train_accuracy <= 1.0
     assert 0.0 <= test_accuracy <= 1.0
