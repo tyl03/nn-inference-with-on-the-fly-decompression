@@ -1,3 +1,19 @@
+"""
+These tests verify the basic structure and behavior of the FCN model.
+
+What these tests check:
+- The model accepts image-shaped input (N, 1, 28, 28) and produces output
+  with shape (N, number_of_classes)
+- The model also accepts flat vector input (N, in_dim) and produces correct
+  output shape
+- The model contains the expected number of Linear layers based on the
+  specified hidden dimensions
+
+These tests ensure that the FCN forward pass and network structure behave
+as expected.
+"""
+
+
 import torch
 import torch.nn as nn
 from src.fcn import FCN

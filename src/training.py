@@ -168,7 +168,7 @@ def main():
     
     
     # Training loop
-    epochs = 5
+    epochs = 3 # After reviewing the plots, epochs = 3 was the best option for this dataset
     best_test_accuracy = 0.0
     
     train_losses = []
