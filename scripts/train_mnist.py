@@ -16,7 +16,8 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
 from src.fcn import FCN
-from src.training import get_device, train_one_epoch, evaluate
+from src.exp_utils import get_device
+from src.training import train_one_epoch, evaluate
 
 
 def plot_training_curves(

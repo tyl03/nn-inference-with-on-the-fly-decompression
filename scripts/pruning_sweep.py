@@ -9,32 +9,19 @@ Pruning experiment:
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
 
-from src.fcn import FCN
-from src.training import get_device, evaluate
+from src.exp_utils import (
+    get_device,
+    load_test_loader,
+    build_model,
+    load_weights,
+)
+from src.training import evaluate
 from src.pruning import (
     magnitude_prune_linear_layers,
     make_pruning_permanent,
     model_sparsity,
 )
-
-
-def load_test_loader():
-    transform = transforms.ToTensor()
-    test_ds = datasets.MNIST(root="data", train=False, download=True, transform=transform)
-    return DataLoader(test_ds, batch_size=256, shuffle=False)
-
-
-def build_model(device: torch.device):
-    return FCN(in_dim=28 * 28, hidden_dims=[512, 256], out_dim=10).to(device)
-
-
-def load_weights(model: nn.Module, ckpt_path: str, device: torch.device):
-    state = torch.load(ckpt_path, map_location=device)
-    model.load_state_dict(state)
-    return model
 
 
 def main():
@@ -71,7 +58,7 @@ def main():
     
     # Print results as a table
     print("\nPruning Sweep Results\n")
-    header = f"{'amount':>8} | {'sparsity(%)':>9} | {'accuracy_before':>10} | {'accuracy_after':>9} | {'drop':>0}"
+    header = f"{'amount':>8} | {'sparsity(%)':>11} | {'accuracy_before':>10} | {'accuracy_after':>9} | {'drop':>0}"
     print(header)
     print("-" * len(header))
     

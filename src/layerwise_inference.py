@@ -74,7 +74,6 @@ def layerwise_predict(compressed: dict, x: torch.Tensor) -> torch.Tensor:
     return logits.argmax(dim=1)
 
 
-@torch.no_grad()
 def layerwise_evaluate_accuracy(compressed: dict, loader, device: torch.device) -> float:
     """
     Evaluates accuracy on a DataLoader using layerwise inference.
@@ -89,12 +88,13 @@ def layerwise_evaluate_accuracy(compressed: dict, loader, device: torch.device) 
     correct = 0
     total = 0
     
-    for x, y in loader:
-        x = x.to(device)
-        y = y.to(device)
-        
-        preds = layerwise_predict(compressed, x)
-        correct += (preds == y).sum().item()
-        total += y.numel()
+    with torch.inference_mode():
+        for x, y in loader:
+            x = x.to(device)
+            y = y.to(device)
+            
+            preds = layerwise_predict(compressed, x)
+            correct += (preds == y).sum().item()
+            total += y.numel()
         
     return correct / total if total > 0 else 0.0

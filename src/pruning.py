@@ -59,7 +59,7 @@ def model_sparsity(model: nn.Module) -> float:
     for layer in model.modules():
         if isinstance(layer, nn.Linear):
             w = layer.weight.detach()
-            zeros += (w == 0).sum().item()
+            zeros += (w.numel() - torch.count_nonzero(w).item())
             total += w.numel()
             
     return zeros / total if total > 0 else 0.0

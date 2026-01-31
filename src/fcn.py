@@ -31,9 +31,4 @@ class FCN(nn.Module):
         
     def forward(self, x):
         x = self.flatten(x) # works for images or vectors
-        
-        # Error checking
-        if x.shape[1] != self.in_dim:
-            raise ValueError(f"Expected input with {self.in_dim} features. Got {x.shape[1]}.")
-        
         return self.net(x)

@@ -7,10 +7,6 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 
-def get_device() -> torch.device:
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
 # One training epoch
 def train_one_epoch(
     model: nn.Module, 
@@ -61,8 +57,6 @@ def train_one_epoch(
     return avg_loss, accuracy
 
 
-# Evaluation (no gradients)
-@torch.no_grad()
 def evaluate(
     model: nn.Module,
     loader: DataLoader,
@@ -80,17 +74,18 @@ def evaluate(
     correct = 0
     total = 0
     
-    for x, y in loader:
-        x = x.to(device)
-        y = y.to(device)
-        
-        logits = model(x)
-        loss = loss_fn(logits, y)
-        
-        total_loss += loss.item() * x.size(0)
-        preds = logits.argmax(dim=1)
-        correct += (preds == y).sum().item()
-        total += x.size(0)
+    with torch.inference_mode():
+        for x, y in loader:
+            x = x.to(device)
+            y = y.to(device)
+            
+            logits = model(x)
+            loss = loss_fn(logits, y)
+            
+            total_loss += loss.item() * x.size(0)
+            preds = logits.argmax(dim=1)
+            correct += (preds == y).sum().item()
+            total += x.size(0)
         
     avg_loss = total_loss / total
     accuracy = correct / total
