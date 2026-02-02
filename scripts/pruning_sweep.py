@@ -58,12 +58,12 @@ def main():
     
     # Print results as a table
     print("\nPruning Sweep Results\n")
-    header = f"{'amount':>8} | {'sparsity(%)':>11} | {'accuracy_before':>10} | {'accuracy_after':>9} | {'drop':>0}"
+    header = f"{'amount':>8} | {'sparsity(%)':>11} | {'accuracy_before':>10} | {'accuracy_after':>9} | {'drop':>8}"
     print(header)
     print("-" * len(header))
     
     for amount, sp_pct, accuracy_b, accuracy_a, drop, loss_b, loss_a in results:
-        print(f"{amount:8.2f} | {sp_pct:9.2f} | {accuracy_b:10.4f} | {accuracy_a:9.4f} | {drop:8.4f}")
+        print(f"{amount:8.2f} | {sp_pct:11f} | {accuracy_b:15f} | {accuracy_a:14f} | {drop:8.4f}")
             
     
 if __name__ == "__main__":

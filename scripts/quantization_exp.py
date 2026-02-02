@@ -41,19 +41,33 @@ def main():
     apply_qdq_to_linear_weights_inplace(qmodel)
     q_loss, q_accuracy = evaluate(qmodel, test_loader, loss_fn, device)
     
-    # Storage estimates (weights only)
+    # Storage estimates (stored format: int8 weights + scale + bias)
     fp32_bytes = estimate_fp32_weight_bytes(model)
     compressed_bytes = estimate_compressed_storage_bytes_from_model(model)
+    
+    acc_drop = base_accuracy - q_accuracy
+    ratio = (fp32_bytes / compressed_bytes) if compressed_bytes >= 0 else float("inf")
         
-    print("\nQuantization Storage Results (symmetric int8 stored format)\n")
-    print(f"FP32 accuracy: {base_accuracy:.4f}   loss: {base_loss:.4f}\n")
-    print(f"QDQ accuracy (simulated): {q_accuracy:.4f}   loss: {q_loss:.4f}")
-    print(f"Accuracy drop vs FP32: {base_accuracy - q_accuracy:.4f}")
+    print("\n" + "=" * 70)
+    print("Quantization Experiment (MNIST)".center(70))
+    print("=" * 70)
 
-    print("Storage estimate (weights + scale + bias):")
-    print(f"FP32 weights (RAM/reference): {fmt_bytes(fp32_bytes)}")
-    print(f"Compressed stored (int8+meta): {fmt_bytes(compressed_bytes)}")
-    print(f"Compression ratio: {fp32_bytes / compressed_bytes:.2f}x")
+    print("\n[Setup]")
+    print(f"  Checkpoint     : {ckpt_path}")
+    print("  Method         : symmetric int8 (stored), QDQ simulated (FP32 compute)")
+
+    print("\n[Accuracy]")
+    print(f"  FP32 baseline  : {base_accuracy:.4f}   (loss {base_loss:.4f})")
+    print(f"  QDQ simulated  : {q_accuracy:.4f}   (loss {q_loss:.4f})")
+    print(f"  Accuracy drop vs FP32   : {acc_drop:+.4f}")
+
+    print("\n[Storage]")
+    print(f"  FP32 weights (B)        : {fmt_bytes(fp32_bytes)}")
+    print(f"  Stored int8+meta (B)    : {fmt_bytes(compressed_bytes)}")
+    print(f"  Compression ratio       : {ratio:.2f}x")
+    print("  (int8+meta = int8 weights + FP32 scale + FP32 bias + layer metadata)")
+
+    print("=" * 70 + "\n")
 
     
     

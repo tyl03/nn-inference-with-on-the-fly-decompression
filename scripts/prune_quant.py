@@ -45,7 +45,7 @@ def main():
     # The drop is "how much accuracy there is lost compared to the original FP32 model"
     header = (
         f"{'prune':>6} | {'sparsity%':>9} | {'acc_pruned':>10} | {'acc_prune+qdq':>15} | "
-        f"{'drop':>11} | {'stored_int8':>12} | {'ratio':>7}"
+        f"{'drop':>11} | {'stored_int8':>15} | {'ratio':>7}"
     )
     print(header)
     print("-" * len(header))
@@ -83,7 +83,7 @@ def main():
         
         print(
             f"{amount:6.2f} | {sparsity_pct:9.2f} | {prune_accuracy:10.4f} | {pq_accuracy:15.4f} | "
-            f"{base_accuracy - pq_accuracy:11.4f} | {stored_kb:>9.2} | {ratio:7.2f}"
+            f"{base_accuracy - pq_accuracy:11.4f} | {stored_kb:>11} KB | {ratio:7.2f}"
         )
 
         
