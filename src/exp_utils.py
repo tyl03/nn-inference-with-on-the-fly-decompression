@@ -15,6 +15,13 @@ from .fcn import FCN
 from .quantization import compute_scale, symmetric_quantization, symmetric_dequantization
 
 
+from .export_compressed import (
+    export_fcn_to_compressed,
+    save_compressed,
+    load_compressed,
+    estimate_compressed_weight_bytes,
+)
+
 # DEVICE
 def get_device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -74,40 +81,72 @@ def fmt_bytes(b: int) -> str:
     return f"{b:,} B ({kb:.2f} KB)"
 
 
-
-# QUANTIZE HELPERS
 @torch.no_grad()
-def quantize_dequantize_linear_weights_inplace(model: nn.Module):
+def apply_qdq_to_linear_weights_inplace(model: nn.Module):
     """
-    Replaces each nn.Linear weight with a dequantized copy of its int8 quantized version.
-    Returns a list of (layer_name, weight_scale) so we can estimate storage.
+    Quantize -> dequantize each nn.Linear weight and write the FP32 result back.
+
+    Purpose:
+    - Simulate the accuracy impact of int8 quantization (quantization noise),
+      while still using normal FP32 PyTorch inference.
+    - This is NOT the stored-format model. For storage numbers, use
+      estimate_compressed_storage_bytes_from_model(...).
+
+    Returns:
+        list of (layer_name, scale) for debugging/inspection.
     """
     scales = []
     for name, m in model.named_modules():
         if isinstance(m, nn.Linear):
             W = m.weight.data
             s = compute_scale(W)
-            W_q = symmetric_quantization(W, s) # int8
+            W_q = symmetric_quantization(W, s)      # int8
             W_fp = symmetric_dequantization(W_q, s) # float32
             m.weight.data.copy_(W_fp)
-            scales.append((name, s))
-    
+            scales.append((name, float(s)))
     return scales
 
 
-def estimate_int8_weight_bytes_plus_scales(model: nn.Module, num_scales: int) -> int:
+# COMPRESSED (STORED) INT8 MODEL HELPERS
+def export_compressed_model(model: nn.Module) -> dict:
     """
-    int8 weights: 1 byte each
-    scales: store as float32 per layer (4 bytes each)
-    To enable dequantization we need both the weight and the scale.
+    Returns the compressed representation used for storage / layerwise inference.
+    This dict is what we store on disk (torch.save()).
     """
-    int8_bytes = 0
-    for m in model.modules():
-        if isinstance(m, nn.Linear):
-            int8_bytes += m.weight.numel() * 1
-            
-    scale_bytes = num_scales * 4
-    return int8_bytes, scale_bytes
+    return export_fcn_to_compressed(model)
+
+
+def save_compressed_model(model: nn.Module, path: str) -> None:
+    """
+    Exports + saves the compressed representation.
+    """
+    compressed = export_compressed_model(model)
+    save_compressed(compressed, path)
+
+
+def load_compressed_model(path: str) -> dict:
+    """
+    Loads a compressed model (CPU dict).
+    """
+    return load_compressed(path)
+
+
+def estimate_compressed_storage_bytes_from_model(model: nn.Module) -> int:
+    """
+    Estimates stored bytes for int8 weights + FP32 scales + FP32 bias
+    using the compressed format.
+    """
+    compressed = export_compressed_model(model)
+    return estimate_compressed_weight_bytes(compressed)
+
+
+def estimate_compressed_storage_bytes_from_file(path: str) -> int:
+    """
+    Loads a saved compressed model and estimates stored bytes.
+    Useful when the FP32 model isn't available anymore.
+    """
+    compressed = load_compressed_model(path)
+    return estimate_compressed_weight_bytes(compressed)
 
 
 # Converts bytes into kilobytes

@@ -19,7 +19,9 @@ from src.exp_utils import (
     load_test_loader,
     build_model,
     load_weights,
-    quantize_dequantize_linear_weights_inplace,
+    estimate_fp32_weight_bytes,
+    estimate_compressed_storage_bytes_from_model,
+    apply_qdq_to_linear_weights_inplace
 )
 from src.training import evaluate
 from src.pruning import magnitude_prune_linear_layers, make_pruning_permanent, model_sparsity
@@ -37,12 +39,13 @@ def main():
     base_model = build_model(device)
     load_weights(base_model, ckpt_path, device)
     base_loss, base_accuracy = evaluate(base_model, test_loader, loss_fn, device)
-    
+
     print(f"\nFP32 baseline accuracy: {base_accuracy:.4f} (loss {base_loss:.4f})\n")
     
     # The drop is "how much accuracy there is lost compared to the original FP32 model"
     header = (
-        f"{'prune':>6} | {'sparsity%':>9} | {'acc_pruned':>10} | {'acc_prune+quant':>15} | {'drop':>11}"
+        f"{'prune':>6} | {'sparsity%':>9} | {'acc_pruned':>10} | {'acc_prune+qdq':>15} | "
+        f"{'drop':>11} | {'stored_int8':>12} | {'ratio':>7}"
     )
     print(header)
     print("-" * len(header))
@@ -56,12 +59,15 @@ def main():
         if amount > 0.0:
             magnitude_prune_linear_layers(prune_model, amount=amount)
             make_pruning_permanent(prune_model)
-            
+        
         sparsity_pct = model_sparsity(prune_model) * 100.0
         prune_loss, prune_accuracy = evaluate(prune_model, test_loader, loss_fn, device)
+
+        # Stored size from compressed export format
+        fp32_bytes = estimate_fp32_weight_bytes(prune_model)
+        compressed_bytes = estimate_compressed_storage_bytes_from_model(prune_model)        
         
-        
-        # Prune + quant
+        # Prune + QDQ (Quantize and DeQuantize)
         pq_model = build_model(device)
         load_weights(pq_model, ckpt_path, device)
         
@@ -69,11 +75,18 @@ def main():
             magnitude_prune_linear_layers(pq_model, amount=amount)
             make_pruning_permanent(pq_model)
             
-        quantize_dequantize_linear_weights_inplace(pq_model)
+        apply_qdq_to_linear_weights_inplace(pq_model)
         pq_loss, pq_accuracy = evaluate(pq_model, test_loader, loss_fn, device)
         
-        print(f"{amount:6.2f} | {sparsity_pct:9.2f} | {prune_accuracy:10.4f} | {pq_accuracy:15.4f} | {base_accuracy - pq_accuracy:11.4f}")
-    
+        ratio = fp32_bytes / compressed_bytes if compressed_bytes > 0 else float("inf")
+        stored_kb = compressed_bytes / 1024.0
+        
+        print(
+            f"{amount:6.2f} | {sparsity_pct:9.2f} | {prune_accuracy:10.4f} | {pq_accuracy:15.4f} | "
+            f"{base_accuracy - pq_accuracy:11.4f} | {stored_kb:>9.2} | {ratio:7.2f}"
+        )
+
+        
     
 if __name__ == "__main__":
     main()

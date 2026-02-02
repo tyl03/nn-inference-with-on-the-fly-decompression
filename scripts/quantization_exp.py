@@ -16,9 +16,9 @@ from src.exp_utils import (
     build_model,
     load_weights,
     estimate_fp32_weight_bytes,
-    quantize_dequantize_linear_weights_inplace,
-    estimate_int8_weight_bytes_plus_scales,
-    fmt_kb
+    estimate_compressed_storage_bytes_from_model,
+    fmt_bytes,
+    apply_qdq_to_linear_weights_inplace
 )
 from src.training import evaluate
 
@@ -35,28 +35,25 @@ def main():
     load_weights(model, ckpt_path, device)
     base_loss, base_accuracy = evaluate(model, test_loader, loss_fn, device)
     
-    # Quantized (weights int8 -> dequant FP32)
+    # Noise from simulating QDQ
     qmodel = build_model(device)
     load_weights(qmodel, ckpt_path, device)
-    scales = quantize_dequantize_linear_weights_inplace(qmodel)
+    apply_qdq_to_linear_weights_inplace(qmodel)
     q_loss, q_accuracy = evaluate(qmodel, test_loader, loss_fn, device)
     
     # Storage estimates (weights only)
     fp32_bytes = estimate_fp32_weight_bytes(model)
-    int8_weight_bytes, scale_bytes = estimate_int8_weight_bytes_plus_scales(model, num_scales=len(scales))
-    total_int8_bytes = int8_weight_bytes + scale_bytes
-    
-    print("\nQuantization Results (weights only, symmetric int8)\n")
-    print(f"FP32 accuracy: {base_accuracy:.4f}   loss: {base_loss:.4f}")
-    print(f"INT8 accuracy: {q_accuracy:.4f}   loss: {q_loss:.4f}")
-    print(f"Accuracy drop: {base_accuracy - q_accuracy:.4f}\n")
+    compressed_bytes = estimate_compressed_storage_bytes_from_model(model)
+        
+    print("\nQuantization Storage Results (symmetric int8 stored format)\n")
+    print(f"FP32 accuracy: {base_accuracy:.4f}   loss: {base_loss:.4f}\n")
+    print(f"QDQ accuracy (simulated): {q_accuracy:.4f}   loss: {q_loss:.4f}")
+    print(f"Accuracy drop vs FP32: {base_accuracy - q_accuracy:.4f}")
 
-    print("Storage estimate (weights only):")
-    print(f"FP32 weights: {fp32_bytes} bytes ({fmt_kb(fp32_bytes):.2f} KB)")
-    print(f"INT8 weights + scales: {total_int8_bytes} bytes ({fmt_kb(total_int8_bytes):.2f} KB)")
-    print(f"    - weights: {int8_weight_bytes} bytes ({fmt_kb(int8_weight_bytes):.2f} KB)")
-    print(f"    - scales:  {scale_bytes} bytes ({fmt_kb(scale_bytes):.2f} KB)")
-    print(f"Compression ratio: {fp32_bytes / total_int8_bytes:.2f}x")
+    print("Storage estimate (weights + scale + bias):")
+    print(f"FP32 weights (RAM/reference): {fmt_bytes(fp32_bytes)}")
+    print(f"Compressed stored (int8+meta): {fmt_bytes(compressed_bytes)}")
+    print(f"Compression ratio: {fp32_bytes / compressed_bytes:.2f}x")
 
     
     

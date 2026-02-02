@@ -26,11 +26,13 @@ from src.exp_utils import (
     load_weights,
     estimate_fp32_weight_bytes,
     estimate_peak_decompressed_layer_bytes,
-    fmt_bytes
+    fmt_bytes,
+    save_compressed_model,
+    load_compressed_model,
+    estimate_compressed_storage_bytes_from_file,
 )
 from src.training import evaluate
 from src.pruning import magnitude_prune_linear_layers, make_pruning_permanent, model_sparsity
-from src.export_compressed import export_fcn_to_compressed, save_compressed, load_compressed, estimate_compressed_weight_bytes
 from src.layerwise_inference import layerwise_evaluate_accuracy
 
 
@@ -105,15 +107,12 @@ def main():
     pruned_loss, pruned_accuracy = evaluate(pruned_model, test_loader, loss_fn, device)
     sparsity = model_sparsity(pruned_model) * 100.0
     
-    # 3) Export compressed model
-    # OBS: export from the pruned_model, so the compressed file reflects pruning
-    compressed = export_fcn_to_compressed(pruned_model)
-    
+    # 3) Export compressed model    
     save_path = f"fcn_mnist_pruned_{int(prune_amount*100)}_int8_compressed.pt"
-    save_compressed(compressed, save_path)
+    save_compressed_model(pruned_model, save_path)
     
     # Load the compressed model
-    compressed_loaded = load_compressed(save_path)
+    compressed_loaded = load_compressed_model(save_path)
     
     # 4) Layerwise inference accuracy
     layer_device = torch.device("cpu")
@@ -121,7 +120,7 @@ def main():
     
     # 5) Storage + peak memory estimates
     fp32_weight_bytes = estimate_fp32_weight_bytes(pruned_model)
-    compressed_bytes = estimate_compressed_weight_bytes(compressed_loaded)
+    compressed_bytes = estimate_compressed_storage_bytes_from_file(save_path)
     peak_layer_fp32_bytes = estimate_peak_decompressed_layer_bytes(pruned_model)
     
     
