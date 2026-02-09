@@ -1,19 +1,17 @@
 """
-Layerwise inference on a compressed model representation.
+Layerwise inference on a compressed model representation (int8 weights + scale).
 
-During inference, we only decompress ONE layer at a time:
-    1) load compressed weights for one layer
-    2) dequantize (decompress) just that layer
-    3) compute the layer output
-    4) discard the decompressed weights
-    
-This reduces peak memory usage because we never hold the full decompressed model.
+Decode ONE layer at a time:
+- dequantize W_q using s_w
+- compute in FP32
+- discard decompressed weights
 """
 
 from __future__ import annotations
 
 import torch
 import torch.nn.functional as F
+import time
 
 from .quantization import symmetric_dequantization
 
@@ -23,7 +21,7 @@ def _flatten_input(x: torch.Tensor) -> torch.Tensor:
 
 
 @torch.no_grad()
-def layerwise_forward(compressed: dict, x: torch.Tensor) -> torch.Tensor:
+def layerwise_forward(compressed: dict, x: torch.Tensor, device: torch.device) -> torch.Tensor:
     """
     Runs a forward pass (logits output) using layer-by-layer decompression.
 
@@ -31,6 +29,7 @@ def layerwise_forward(compressed: dict, x: torch.Tensor) -> torch.Tensor:
     - logits (float32): shape [batch_size, out_dim]
     """
     # 1) Flatten input
+    x = x.to(device)
     input_flat = _flatten_input(x)
     
     # 2) Validate input size
@@ -46,9 +45,10 @@ def layerwise_forward(compressed: dict, x: torch.Tensor) -> torch.Tensor:
         
         if layer_type == "linear":
             # Load compressed weights
-            W_q = entry["W_q"]
-            s_w = entry["s_w"]
+            W_q = entry["W_q"].to(device)  # int8 quantized weights
+            s_w = float(entry["s_w"]) # scale factor
             b = entry["b"]
+            b = b.to(device) if b is not None else None
             
             # Decompress just this layer
             W = symmetric_dequantization(W_q, s_w)
@@ -69,11 +69,6 @@ def layerwise_forward(compressed: dict, x: torch.Tensor) -> torch.Tensor:
 
 
 @torch.no_grad()
-def layerwise_predict(compressed: dict, x: torch.Tensor) -> torch.Tensor:
-    logits = layerwise_forward(compressed, x)
-    return logits.argmax(dim=1)
-
-
 def layerwise_evaluate_accuracy(compressed: dict, loader, device: torch.device) -> float:
     """
     Evaluates accuracy on a DataLoader using layerwise inference.
@@ -90,11 +85,37 @@ def layerwise_evaluate_accuracy(compressed: dict, loader, device: torch.device) 
     
     with torch.inference_mode():
         for x, y in loader:
-            x = x.to(device)
             y = y.to(device)
-            
-            preds = layerwise_predict(compressed, x)
+            logits = layerwise_forward(compressed, x, device)
+            preds = logits.argmax(dim=1)
             correct += (preds == y).sum().item()
             total += y.numel()
         
     return correct / total if total > 0 else 0.0
+
+
+@torch.no_grad()
+def measure_layerwise_inference_time(
+    compressed: dict,
+    loader,
+    device: torch.device,
+    warmup_batches: int = 5,
+    timed_batches: int = 30,
+) -> float:
+    it = iter(loader)
+
+    # warmup
+    for _ in range(warmup_batches):
+        x, _ = next(it)
+        _ = layerwise_forward(compressed, x, device)
+
+    # timed
+    times = []
+    for _ in range(timed_batches):
+        x, _ = next(it)
+        t0 = time.perf_counter()
+        _ = layerwise_forward(compressed, x, device)
+        t1 = time.perf_counter()
+        times.append(t1 - t0)
+
+    return sum(times) / len(times)

@@ -1,44 +1,68 @@
-import torch
+"""
+Huffman utilities for int8 tensors.
+
+We Huffman-compress int8 weights by treating each byte as a symbol in [0,255].
+This works well after quantization because the alphabet is small and repetitive.
+"""
+
+from __future__ import annotations
+
+import pickle
 import numpy as np
+import torch
 from collections import Counter
 from dahuffman import HuffmanCodec
 
-
-def tensor_to_symbols(t: torch.Tensor):
-    a = t.detach().to(dtype=torch.float32, device="cpu").contiguous().numpy()
-    shape = a.shape
-    symbols = a.view(np.uint32).reshape(-1).tolist()
-    return symbols, shape
+HUFF_EOF = -1 # Special symbol to indicate end-of-data in Huffman coding
 
 
-def symbols_to_tensor(symbols, shape):
-    a = np.array(symbols, dtype=np.uint32).view(np.float32).reshape(shape)
-    return torch.from_numpy(a)
+def huff_compress_int8_tensor(t: torch.Tensor) -> dict:
+    """
+    Huffman-compress an int8 tensor by viewing it as uint8 symbols (0..255).
+    Returns a plain dict suitable for torch.save().
+    """
+    if t.dtype != torch.int8:
+        raise TypeError(f"Expected int8 tensor, got {t.dtype}")
 
+    a_u8 = t.detach().cpu().contiguous().view(torch.uint8).numpy()
+    shape = tuple(t.shape)
+    symbols = a_u8.reshape(-1).tolist()  # list[int] 0..255
 
-def huffman_compress_tensor(t: torch.Tensor):
-    symbols, shape = tensor_to_symbols(t)
-    
-    # For each distinct symbol, it counts how many times it appears in the data.
     freqs = Counter(symbols)
-    
-    # From the given symbol frequencies, we build the Huffman code table.
-    codec = HuffmanCodec.from_frequencies(freqs)
-    
-    # Replace each symbol in the original data with its corresponding Huffman code and concatenate those bits, resulting in a compressed bitstream.
-    # That bitstream is then packed into bytes.
+    codec = HuffmanCodec.from_frequencies(freqs, eof=HUFF_EOF)
     encoded = codec.encode(symbols)
-    
-    compressed_tensor = {
-        "shape": shape, # original tensor shape
-        "encoded": encoded, # compressed bitstream (bytes)
-        "freqs": freqs, # codebook source
+
+    return {
+        "shape": shape,
+        "encoded": encoded,
+        "freqs": dict(freqs),
+        "eof": HUFF_EOF,
+        "dtype": "int8",
     }
-    
-    return compressed_tensor
-    
-    
-def huffman_decompress_tensor(compressed_tensor):
-    codec = HuffmanCodec.from_frequencies(compressed_tensor["freqs"])
-    symbols = codec.decode(compressed_tensor["encoded"])
-    return symbols_to_tensor(symbols, compressed_tensor["shape"])
+
+
+def huff_decompress_int8_tensor(pkg: dict) -> torch.Tensor:
+    """
+    Decode a Huffman-compressed int8 tensor package back to torch.int8.
+    """
+    if pkg.get("dtype") != "int8":
+        raise ValueError("Package dtype is not int8")
+
+    freqs = Counter({int(k): int(v) for k, v in pkg["freqs"].items()})
+    eof = int(pkg.get("eof", HUFF_EOF))
+    codec = HuffmanCodec.from_frequencies(freqs, eof=eof)
+
+    symbols = codec.decode(pkg["encoded"])  # list[int] 0..255
+    a_u8 = np.array(symbols, dtype=np.uint8).reshape(pkg["shape"])
+    a_i8 = a_u8.view(np.int8)
+    return torch.from_numpy(a_i8)
+
+
+def estimate_huff_pkg_bytes(pkg: dict) -> int:
+    """
+    Logical estimate: encoded bytes + serialized freqs + serialized shape.
+    """
+    encoded_bytes = len(pkg["encoded"])
+    freqs_bytes = len(pickle.dumps(pkg["freqs"], protocol=pickle.HIGHEST_PROTOCOL))
+    shape_bytes = len(pickle.dumps(pkg["shape"], protocol=pickle.HIGHEST_PROTOCOL))
+    return encoded_bytes + freqs_bytes + shape_bytes

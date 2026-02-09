@@ -1,55 +1,45 @@
 """
-Unit tests for the Huffman coding implementation.
+Unit tests for Huffman coding on int8 tensors.
 
 What these tests check:
-- the conversion of tensors to symbols and back is consistent
-- compressing and then decompressing a tensor results in the original tensor
+- compressing then decompressing an int8 tensor returns identical values
+- the compressed package has expected fields and types
 """
 
 import torch
 
 from src.huffman import (
-    tensor_to_symbols,
-    symbols_to_tensor,
-    huffman_compress_tensor,
-    huffman_decompress_tensor,
+    huff_compress_int8_tensor,
+    huff_decompress_int8_tensor,
 )
 
 
-def test_tensor_to_symbols_and_back_is_lossless():
+def test_huffman_int8_compress_and_decompress_is_lossless():
     torch.manual_seed(0)
-    
-    W = torch.randn(64, 32, dtype=torch.float32)
-    
-    symbols, shape = tensor_to_symbols(W)
-    W_reconstructed = symbols_to_tensor(symbols, shape)
-    
-    assert torch.allclose(W.cpu(), W_reconstructed)
-    
-    
-def test_huffman_compress_and_decompress_is_lossless():
+
+    # simulate quantized weights: int8 values in [-127,127]
+    W_q = torch.randint(low=-127, high=128, size=(128, 64), dtype=torch.int8)
+
+    compressed = huff_compress_int8_tensor(W_q)
+    W_q_decompressed = huff_decompress_int8_tensor(compressed)
+
+    # must be exact equality for int8 tensors
+    assert torch.equal(W_q.cpu(), W_q_decompressed)
+
+
+def test_compressed_package_has_expected_fields_and_types():
     torch.manual_seed(0)
-    
-    W = torch.randn(128, 64, dtype=torch.float32)
-    
-    compressed = huffman_compress_tensor(W)
-    W_decompressed = huffman_decompress_tensor(compressed)
-    
-    assert torch.equal(W.cpu(), W_decompressed)
-    
-    
-def test_compressed_tesnor_has_expected_fields_and_types():
-    torch.manual_seed(0)
-    
-    W = torch.randn(10, 10, dtype=torch.float32)
-    
-    compressed = huffman_compress_tensor(W)
-    
+
+    W_q = torch.randint(low=-127, high=128, size=(10, 10), dtype=torch.int8)
+    compressed = huff_compress_int8_tensor(W_q)
+
     assert "shape" in compressed
     assert "encoded" in compressed
     assert "freqs" in compressed
-    
+    assert "eof" in compressed
+    assert "dtype" in compressed
+
     assert isinstance(compressed["shape"], tuple)
     assert isinstance(compressed["encoded"], (bytes, bytearray))
-    # Counter is a subclass of dict, so this also checks that freqs is a dict-like object
     assert isinstance(compressed["freqs"], dict)
+    assert compressed["dtype"] == "int8"
