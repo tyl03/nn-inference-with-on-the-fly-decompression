@@ -7,8 +7,10 @@ Pruning sweep experiment (global pruning):
 - Print results as a table
 """
 
+import os
 import torch
 import torch.nn as nn
+import matplotlib.pyplot as plt
 
 from src.exp_utils import (
     get_device,
@@ -33,6 +35,8 @@ def main():
     ckpt_path = "fcn_mnist_best.pt"
     # prune_amounts = [0.5, 0.6, 0.7, 0.8, 0.9]
     prune_amounts = [0.8, 0.825, 0.85, 0.875, 0.9]
+    
+    os.makedirs("results/pruning", exist_ok=True)
     
     # Baseline
     base_model = build_model(device)
@@ -73,6 +77,22 @@ def main():
 
     for amount, sp_pct, acc_b, acc_a, drop, loss_b, loss_a in results:
         print(f"{amount:8.2f} | {sp_pct:11.2f} | {acc_b:10.4f} | {acc_a:9.4f} | {drop:8.4f}")
+        
+        
+    # Plot
+    sparsities = [r[1] for r in results]
+    drops = [r[3] for r in results]
+
+    plt.figure()
+    plt.plot(sparsities, drops, marker="o")
+    plt.xlabel("Model sparsity (%)")
+    plt.ylabel("Accuracy drop")
+    plt.title("Accuracy Drop vs Sparsity")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("results/pruning/accuracy_drop_vs_sparsity_2.png", dpi=200)
+
+    print("\nSaved pruning plot in results/pruning/")
             
     
 if __name__ == "__main__":

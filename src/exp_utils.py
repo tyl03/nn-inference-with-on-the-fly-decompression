@@ -17,7 +17,7 @@ from .export_compressed import (
     export_fcn_to_compressed,
     save_compressed,
     load_compressed,
-    estimate_compressed_weight_bytes,
+    estimate_compressed_payload_bytes,
 )
 
 # DEVICE
@@ -135,7 +135,7 @@ def estimate_compressed_storage_bytes_from_model(model: nn.Module) -> int:
     using the compressed format.
     """
     compressed = export_compressed_model(model)
-    return estimate_compressed_weight_bytes(compressed)
+    return estimate_compressed_payload_bytes(compressed)
 
 
 def estimate_compressed_storage_bytes_from_file(path: str) -> int:
@@ -144,7 +144,7 @@ def estimate_compressed_storage_bytes_from_file(path: str) -> int:
     Useful when the FP32 model isn't available anymore.
     """
     compressed = load_compressed_model(path)
-    return estimate_compressed_weight_bytes(compressed)
+    return estimate_compressed_payload_bytes(compressed)
 
 
 # Converts bytes into kilobytes

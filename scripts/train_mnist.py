@@ -9,6 +9,7 @@ Key ideas:
   the trained/compressed weights for inference only (no training, no loss, no optimizer).
 """
 
+import os
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
@@ -28,6 +29,8 @@ def plot_training_curves(
 ):
     epochs = range(1, len(train_losses) + 1)
     
+    os.makedirs("results/training", exist_ok=True)
+    
     # Loss plot
     plt.figure(figsize=(6, 4))
     plt.plot(epochs, train_losses, label="Train loss")
@@ -36,7 +39,7 @@ def plot_training_curves(
     plt.ylabel("Loss")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("training_loss.png", dpi=200)
+    plt.savefig("results/training/training_loss.png", dpi=200)
     plt.close()
 
     # Accuracy plot
@@ -47,7 +50,7 @@ def plot_training_curves(
     plt.ylabel("Accuracy")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("training_accuracy.png", dpi=200)
+    plt.savefig("results/training/training_accuracy.png", dpi=200)
     plt.close()
     
     
