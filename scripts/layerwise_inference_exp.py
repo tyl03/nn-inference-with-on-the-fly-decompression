@@ -1,20 +1,24 @@
 """
-Layerwise inference experiment (MNIST):
+Layerwise inference experiment (MNIST) using Zstandard-compressed FP32 layers.
 
 Compares:
 - Baseline FP32 inference
-- Layerwise int8 inference
-- Layerwise int8 + Huffman inference
+- Pruned FP32 inference
+- Layerwise Zstd inference (decompress one layer at a time)
 
 Focus:
-- Accuracy impact
-- Storage footprint
-- Inference time (avg per batch)
+- Accuracy
+- Storage footprint (compressed payload bytes)
+- Peak decompressed layer bytes (RAM estimate)
+- Inference time (avg per batch, CPU)
 """
 
+from __future__ import annotations
+
+import os
+import time
 import torch
 import torch.nn as nn
-import time
 
 from src.exp_utils import (
     get_device,
@@ -24,13 +28,16 @@ from src.exp_utils import (
     estimate_fp32_weight_bytes,
     estimate_peak_decompressed_layer_bytes,
     fmt_bytes,
-    save_compressed_model,
-    load_compressed_model,
-    estimate_compressed_storage_bytes_from_file,
 )
 from src.training import evaluate
-from src.pruning import magnitude_prune_linear_layers, make_pruning_permanent, model_sparsity
-
+from src.pruning import global_magnitude_prune_linear_layers, make_pruning_permanent, model_sparsity
+from src.export_compressed import (
+    export_fcn_to_compressed,
+    save_compressed,
+    load_compressed,
+    estimate_compressed_payload_bytes
+)
+    
 from src.layerwise_inference import layerwise_evaluate_accuracy, measure_layerwise_inference_time
 
 
@@ -57,56 +64,58 @@ def measure_baseline_inference_time(model, loader, device, warmup_batches=5, tim
 def print_report(
     ckpt_path: str,
     prune_amount: float,
-    sparsity: float,
+    sparsity_pct: float,
+    zstd_level: int,
     base_acc: float,
     pruned_acc: float,
-    lw_acc_int8: float,
-    lw_acc_int8_huff: float,
+    lw_acc_zstd: float,
     fp32_bytes: int,
-    int8_bytes: int,
-    int8_huff_bytes: int,
-    peak_layer_bytes: int,
+    zstd_payload_bytes: int,
+    file_bytes: int,
+    overhead_bytes: int,
+    peak_layer_fp32_bytes: int,
     t_base: float,
-    t_int8: float,
-    t_int8_huff: float,
-    save_path_int8: str,
-    save_path_int8_huff: str,
+    t_lw: float,
+    save_path: str,
 ) -> None:
-    ratio_int8 = fp32_bytes / int8_bytes if int8_bytes > 0 else float("inf")
-    ratio_huff = fp32_bytes / int8_huff_bytes if int8_huff_bytes > 0 else float("inf")
+    ratio_payload = fp32_bytes / zstd_payload_bytes if zstd_payload_bytes > 0 else float("inf")
+    ratio_file = fp32_bytes / file_bytes if file_bytes > 0 else float("inf")
+    
+    payload_fraction = (zstd_payload_bytes / file_bytes) if file_bytes > 0 else 0.0
 
     print("\n" + "=" * 78)
-    print("Layerwise Inference Experiment (MNIST)".center(78))
+    print("Layerwise Inference Experiment (MNIST) — Zstd FP32".center(78))
     print("=" * 78)
 
     print("\n[Setup]")
     print(f"  Checkpoint     : {ckpt_path}")
     print(f"  Prune amount   : {prune_amount:.2f}")
-    print(f"  Sparsity       : {sparsity:.2f}%")
+    print(f"  Sparsity       : {sparsity_pct:.2f}%")
+    print(f"  Zstd level     : {zstd_level}")
 
     print("\n[Accuracy]")
     print(f"  Baseline FP32          : {base_acc:.4f}")
     print(f"  Pruned FP32            : {pruned_acc:.4f}")
-    print(f"  Layerwise int8         : {lw_acc_int8:.4f} (drop {base_acc - lw_acc_int8:+.4f})")
-    print(f"  Layerwise int8+Huffman : {lw_acc_int8_huff:.4f} (drop {base_acc - lw_acc_int8_huff:+.4f})")
+    print(f"  Layerwise Zstd (FP32)  : {lw_acc_zstd:.4f} (drop vs pruned {pruned_acc - lw_acc_zstd:+.4f})")
 
-    print("\n[Storage (weights/scales/bias)]")
+    print("\n[Storage]")
     print(f"  FP32 weights (dense)       : {fmt_bytes(fp32_bytes)}")
-    print(f"  Stored int8+meta (est.)    : {fmt_bytes(int8_bytes)}   ({ratio_int8:.2f}x)")
-    print(f"  Stored int8+Huffman (est.) : {fmt_bytes(int8_huff_bytes)}   ({ratio_huff:.2f}x)")
+    print(f"  Zstd payload (W+b only)    : {fmt_bytes(zstd_payload_bytes)}   ({ratio_payload:.2f}x smaller)")
+    print(f"  Total file size (on disk)  : {fmt_bytes(file_bytes)}   ({ratio_file:.2f}x smaller)")
+    print(f"  Overhead (meta)            : {fmt_bytes(overhead_bytes)}")
+    print(f"  Payload fraction           : {payload_fraction*100:.2f}%")
 
-    print("\n[Peak decompressed weights]")
-    print(f"  Largest layer (FP32)       : {fmt_bytes(peak_layer_bytes)}")
+    print("\n[Peak decompressed weights (RAM estimate)]")
+    print(f"  Largest layer (FP32)       : {fmt_bytes(peak_layer_fp32_bytes)}")
 
     print("\n[Timing - avg per batch, CPU]")
     print(f"  Baseline FP32 forward      : {t_base*1000:.3f} ms")
-    print(f"  Layerwise int8 forward     : {t_int8*1000:.3f} ms")
-    print(f"  Layerwise int8+Huffman     : {t_int8_huff*1000:.3f} ms")
+    print(f"  Layerwise Zstd forward     : {t_lw*1000:.3f} ms")
 
     print("\n[Artifacts]")
-    print(f"  Saved int8 model           : {save_path_int8}")
-    print(f"  Saved int8+Huffman model   : {save_path_int8_huff}")
+    print(f"  Saved compressed model     : {save_path}")
     print("=" * 78 + "\n")
+
 
 
 def main():
@@ -116,77 +125,68 @@ def main():
     test_loader = load_test_loader()
 
     ckpt_path = "fcn_mnist_best.pt"
-    prune_amount = 0.5
+    
+    prune_amount = 0.85
+    zstd_level = 7
 
-    # 1) Baseline FP32
+    # 1) Baseline FP32 accuracy
     base_model = build_model(device)
     load_weights(base_model, ckpt_path, device)
     _, base_accuracy = evaluate(base_model, test_loader, loss_fn, device)
 
-    # 2) Prune model and evaluate pruned FP32
+    # 2) Pruned FP32 accuracy
     pruned_model = build_model(device)
     load_weights(pruned_model, ckpt_path, device)
 
-    if prune_amount > 0.0:
-        magnitude_prune_linear_layers(pruned_model, amount=prune_amount)
-        make_pruning_permanent(pruned_model)
+    global_magnitude_prune_linear_layers(pruned_model, amount=prune_amount)
+    make_pruning_permanent(pruned_model)
 
     _, pruned_accuracy = evaluate(pruned_model, test_loader, loss_fn, device)
-    sparsity = model_sparsity(pruned_model) * 100.0
+    sparsity_pct = model_sparsity(pruned_model) * 100.0
 
-    # 3) Export int8 compressed model
-    save_path_int8 = f"fcn_mnist_pruned_{int(prune_amount*100)}_int8_compressed.pt"
-    save_compressed_model(pruned_model, save_path_int8)
-    compressed_int8 = load_compressed_model(save_path_int8)
+    # 3) Export zstd compressed model
+    os.makedirs("results/zstd", exist_ok=True)
+    save_path = f"results/zstd/fcn_mnist_pruned_{int(prune_amount*100)}_zstd_lvl{zstd_level}.pt"
+    
+    packed = export_fcn_to_compressed(pruned_model, zstd_level=zstd_level)
+    save_compressed(packed, save_path)
+    
+    compressed = load_compressed(save_path)
+    
+    # Measure compressed payload bytes and overhead
+    zstd_payload_bytes = estimate_compressed_payload_bytes(compressed)
+    file_bytes = os.path.getsize(save_path)
+    overhead_bytes = file_bytes - zstd_payload_bytes 
 
-    # 4) Layerwise inference accuracy (int8 only)
-    layer_device = torch.device("cpu")
-    lw_accuracy_int8 = layerwise_evaluate_accuracy(compressed_int8, test_loader, layer_device)
+    # 4) Layerwise inference accuracy
+    lw_accuracy_zstd = layerwise_evaluate_accuracy(compressed, test_loader, layer_device)
 
-    # 5) Storage + peak memory estimates
-    fp32_weight_bytes = estimate_fp32_weight_bytes(pruned_model)
-    int8_bytes_est = estimate_compressed_storage_bytes_from_file(save_path_int8)
+    # 5) Storage + RAM estimates
+    fp32_bytes = estimate_fp32_weight_bytes(pruned_model)
+    zstd_payload_bytes = estimate_compressed_payload_bytes(compressed)
     peak_layer_fp32_bytes = estimate_peak_decompressed_layer_bytes(pruned_model)
 
-    # 6) Build + save int8+Huffman model
-    # compressed_int8_huff = compress_int8_model_with_huffman(compressed_int8)
-    save_path_int8_huff = f"fcn_mnist_pruned_{int(prune_amount*100)}_int8_huffman.pt"
-    # save_int8_huffman(compressed_int8_huff, save_path_int8_huff)
-
-    # Load (just to prove load works)
-    # compressed_int8_huff_loaded = load_int8_huffman(save_path_int8_huff)
-
-    # 7) Layerwise inference accuracy (int8 + Huffman)
-    # lw_accuracy_int8_huff = layerwise_evaluate_accuracy_int8_huffman(
-    #     compressed_int8_huff_loaded, test_loader, layer_device
-    # )
-
-    # 8) Storage estimate for Huffman format
-    # int8_huff_bytes_est = estimate_int8_huffman_weight_bytes(compressed_int8_huff_loaded)
-
-    # 9) Timing
+    # 6) Timing
     t_base = measure_baseline_inference_time(base_model.to(layer_device), test_loader, layer_device)
-    t_int8 = measure_layerwise_inference_time(compressed_int8, test_loader, layer_device)
-    # t_int8_huff = measure_layerwise_inference_time_huffman(compressed_int8_huff_loaded, test_loader, layer_device)
+    t_lw = measure_layerwise_inference_time(compressed, test_loader, layer_device)
 
     # Report
     print_report(
         ckpt_path=ckpt_path,
         prune_amount=prune_amount,
-        sparsity=sparsity,
+        sparsity_pct=sparsity_pct,
+        zstd_level=zstd_level,
         base_acc=base_accuracy,
         pruned_acc=pruned_accuracy,
-        lw_acc_int8=lw_accuracy_int8,
-        # lw_acc_int8_huff=lw_accuracy_int8_huff,
-        fp32_bytes=fp32_weight_bytes,
-        int8_bytes=int8_bytes_est,
-        # int8_huff_bytes=int8_huff_bytes_est,
-        peak_layer_bytes=peak_layer_fp32_bytes,
+        lw_acc_zstd=lw_accuracy_zstd,
+        fp32_bytes=fp32_bytes,
+        zstd_payload_bytes=zstd_payload_bytes,
+        file_bytes=file_bytes,
+        overhead_bytes=overhead_bytes,
+        peak_layer_fp32_bytes=peak_layer_fp32_bytes,
         t_base=t_base,
-        t_int8=t_int8,
-        # t_int8_huff=t_int8_huff,
-        save_path_int8=save_path_int8,
-        save_path_int8_huff=save_path_int8_huff,
+        t_lw=t_lw,
+        save_path=save_path,
     )
 
 

@@ -33,8 +33,8 @@ def main():
     test_loader = load_test_loader()
     
     ckpt_path = "fcn_mnist_best.pt"
-    # prune_amounts = [0.5, 0.6, 0.7, 0.8, 0.9]
-    prune_amounts = [0.8, 0.825, 0.85, 0.875, 0.9]
+    prune_amounts = [0.5, 0.6, 0.7, 0.8, 0.9]
+    # prune_amounts = [0.8, 0.825, 0.85, 0.875, 0.9]
     
     os.makedirs("results/pruning", exist_ok=True)
     
@@ -90,7 +90,7 @@ def main():
     plt.title("Accuracy Drop vs Sparsity")
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig("results/pruning/accuracy_drop_vs_sparsity_2.png", dpi=200)
+    plt.savefig("results/pruning/accuracy_drop_vs_sparsity.png", dpi=200)
 
     print("\nSaved pruning plot in results/pruning/")
             

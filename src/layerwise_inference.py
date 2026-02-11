@@ -1,17 +1,22 @@
 """
-Layerwise inference on a compressed model representation (int8 weights + scale).
+Layerwise inference utilities for Zstd-compressed FCN exports.
 
-Decode ONE layer at a time:
-- dequantize W_q using s_w
-- compute in FP32
-- discard decompressed weights
+Assumptions:
+- Compressed format produced by src.export_compressed.export_fcn_to_compressed()
+- Model is an FCN with model.net = [Linear/ReLU/.../Linear]
+- Linear payload stores FP32 bytes compressed with zstd (lossless)
+
+Key idea:
+- During inference, decompress ONE layer at a time, compute, discard.
 """
 
 from __future__ import annotations
 
+import time
 import torch
 import torch.nn.functional as F
-import time
+
+from src.export_compressed import decompress_linear_layer
 
 def _flatten_input(x: torch.Tensor) -> torch.Tensor:
     return x.view(x.size(0), -1)
@@ -20,71 +25,52 @@ def _flatten_input(x: torch.Tensor) -> torch.Tensor:
 @torch.no_grad()
 def layerwise_forward(compressed: dict, x: torch.Tensor, device: torch.device) -> torch.Tensor:
     """
-    Runs a forward pass (logits output) using layer-by-layer decompression.
-
-    Returns:
-    - logits (float32): shape [batch_size, out_dim]
+    Forward pass using a Zstd-compressed model dict.
+    Decompresses one Linear layer at a time.
     """
     # 1) Flatten input
+    if x.dim() > 2:
+        x = _flatten_input(x)
+    
     x = x.to(device)
-    input_flat = _flatten_input(x)
     
-    # 2) Validate input size
-    expected_in_dim = int(compressed["in_dim"])
-    if input_flat.shape[1] != expected_in_dim:
-        raise ValueError(
-            f"Expected input with {expected_in_dim} features, got {input_flat.shape[1]}"
-        )
-    
-    # 3) Apply each layer entry in order
+    # 2) Process layers in order
     for entry in compressed["layers"]:
         layer_type = entry["type"]
         
         if layer_type == "linear":
             # Load compressed weights
-            W_q = entry["W_q"].to(device)  # int8 quantized weights
-            s_w = float(entry["s_w"]) # scale factor
-            b = entry["b"]
+            W, b = decompress_linear_layer(entry)
+            W = W.to(device)
             b = b.to(device) if b is not None else None
             
-            # Decompress just this layer
-            # W = symmetric_dequantization(W_q, s_w)
-            
             # Compute: x <- x @ W^T + b
-            input_flat = F.linear(input_flat, W, b)
+            x = F.linear(x, W, b)
             
             # Discard decompressed weights
-            del W
+            del W, b
             
         elif layer_type == "relu":
-            input_flat = F.relu(input_flat)
+            x = F.relu(x)
             
         else:
             raise ValueError(f"Unknown layer type in compressed model: {layer_type}")
         
-    return input_flat # logits
+    return x # logits
 
 
 @torch.no_grad()
 def layerwise_evaluate_accuracy(compressed: dict, loader, device: torch.device) -> float:
     """
-    Evaluates accuracy on a DataLoader using layerwise inference.
-
-    Notes:
-    - We keep the ACTIVATIONS on the chosen device.
-    - The compressed layer weights are dequantized on-the-fly.
-
-    Returns:
-    - accuracy in [0, 1]
+    Accuracy evaluation for a Zstd-compressed model using layerwise inference.
     """
     correct = 0
     total = 0
     
     with torch.inference_mode():
         for x, y in loader:
-            y = y.to(device)
             logits = layerwise_forward(compressed, x, device)
-            preds = logits.argmax(dim=1)
+            preds = logits.argmax(dim=1).cpu()
             correct += (preds == y).sum().item()
             total += y.numel()
         
@@ -99,6 +85,9 @@ def measure_layerwise_inference_time(
     warmup_batches: int = 5,
     timed_batches: int = 30,
 ) -> float:
+    """
+    Returns avg forward time per batch (seconds).
+    """
     it = iter(loader)
 
     # warmup
