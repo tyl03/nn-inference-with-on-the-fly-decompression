@@ -13,9 +13,6 @@ import torch
 import torch.nn.functional as F
 import time
 
-from .quantization import symmetric_dequantization
-
-
 def _flatten_input(x: torch.Tensor) -> torch.Tensor:
     return x.view(x.size(0), -1)
 
@@ -51,7 +48,7 @@ def layerwise_forward(compressed: dict, x: torch.Tensor, device: torch.device) -
             b = b.to(device) if b is not None else None
             
             # Decompress just this layer
-            W = symmetric_dequantization(W_q, s_w)
+            # W = symmetric_dequantization(W_q, s_w)
             
             # Compute: x <- x @ W^T + b
             input_flat = F.linear(input_flat, W, b)

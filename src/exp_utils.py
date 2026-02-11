@@ -12,8 +12,6 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
 from .fcn import FCN
-from .quantization import compute_scale, symmetric_quantization, symmetric_dequantization
-
 
 from .export_compressed import (
     export_fcn_to_compressed,
@@ -81,30 +79,30 @@ def fmt_bytes(b: int) -> str:
     return f"{b:,} B ({kb:.2f} KB)"
 
 
-@torch.no_grad()
-def apply_qdq_to_linear_weights_inplace(model: nn.Module):
-    """
-    Quantize -> dequantize each nn.Linear weight and write the FP32 result back.
+# @torch.no_grad()
+# def apply_qdq_to_linear_weights_inplace(model: nn.Module):
+#     """
+#     Quantize -> dequantize each nn.Linear weight and write the FP32 result back.
 
-    Purpose:
-    - Simulate the accuracy impact of int8 quantization (quantization noise),
-      while still using normal FP32 PyTorch inference.
-    - This is NOT the stored-format model. For storage numbers, use
-      estimate_compressed_storage_bytes_from_model(...).
+#     Purpose:
+#     - Simulate the accuracy impact of int8 quantization (quantization noise),
+#       while still using normal FP32 PyTorch inference.
+#     - This is NOT the stored-format model. For storage numbers, use
+#       estimate_compressed_storage_bytes_from_model(...).
 
-    Returns:
-        list of (layer_name, scale) for debugging/inspection.
-    """
-    scales = []
-    for name, m in model.named_modules():
-        if isinstance(m, nn.Linear):
-            W = m.weight.data
-            s = compute_scale(W)
-            W_q = symmetric_quantization(W, s)      # int8
-            W_fp = symmetric_dequantization(W_q, s) # float32
-            m.weight.data.copy_(W_fp)
-            scales.append((name, float(s)))
-    return scales
+#     Returns:
+#         list of (layer_name, scale) for debugging/inspection.
+#     """
+#     scales = []
+#     for name, m in model.named_modules():
+#         if isinstance(m, nn.Linear):
+#             W = m.weight.data
+#             s = compute_scale(W)
+#             W_q = symmetric_quantization(W, s)      # int8
+#             W_fp = symmetric_dequantization(W_q, s) # float32
+#             m.weight.data.copy_(W_fp)
+#             scales.append((name, float(s)))
+#     return scales
 
 
 # COMPRESSED (STORED) INT8 MODEL HELPERS

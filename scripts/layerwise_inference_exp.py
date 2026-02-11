@@ -32,13 +32,6 @@ from src.training import evaluate
 from src.pruning import magnitude_prune_linear_layers, make_pruning_permanent, model_sparsity
 
 from src.layerwise_inference import layerwise_evaluate_accuracy, measure_layerwise_inference_time
-from src.export_compressed_huffman import (
-    compress_int8_model_with_huffman,
-    save_int8_huffman,
-    load_int8_huffman,
-    estimate_int8_huffman_weight_bytes,
-)
-from src.layerwise_inference_huffman import layerwise_evaluate_accuracy_int8_huffman, measure_layerwise_inference_time_huffman
 
 
 @torch.no_grad()
@@ -156,25 +149,25 @@ def main():
     peak_layer_fp32_bytes = estimate_peak_decompressed_layer_bytes(pruned_model)
 
     # 6) Build + save int8+Huffman model
-    compressed_int8_huff = compress_int8_model_with_huffman(compressed_int8)
+    # compressed_int8_huff = compress_int8_model_with_huffman(compressed_int8)
     save_path_int8_huff = f"fcn_mnist_pruned_{int(prune_amount*100)}_int8_huffman.pt"
-    save_int8_huffman(compressed_int8_huff, save_path_int8_huff)
+    # save_int8_huffman(compressed_int8_huff, save_path_int8_huff)
 
     # Load (just to prove load works)
-    compressed_int8_huff_loaded = load_int8_huffman(save_path_int8_huff)
+    # compressed_int8_huff_loaded = load_int8_huffman(save_path_int8_huff)
 
     # 7) Layerwise inference accuracy (int8 + Huffman)
-    lw_accuracy_int8_huff = layerwise_evaluate_accuracy_int8_huffman(
-        compressed_int8_huff_loaded, test_loader, layer_device
-    )
+    # lw_accuracy_int8_huff = layerwise_evaluate_accuracy_int8_huffman(
+    #     compressed_int8_huff_loaded, test_loader, layer_device
+    # )
 
     # 8) Storage estimate for Huffman format
-    int8_huff_bytes_est = estimate_int8_huffman_weight_bytes(compressed_int8_huff_loaded)
+    # int8_huff_bytes_est = estimate_int8_huffman_weight_bytes(compressed_int8_huff_loaded)
 
     # 9) Timing
     t_base = measure_baseline_inference_time(base_model.to(layer_device), test_loader, layer_device)
     t_int8 = measure_layerwise_inference_time(compressed_int8, test_loader, layer_device)
-    t_int8_huff = measure_layerwise_inference_time_huffman(compressed_int8_huff_loaded, test_loader, layer_device)
+    # t_int8_huff = measure_layerwise_inference_time_huffman(compressed_int8_huff_loaded, test_loader, layer_device)
 
     # Report
     print_report(
@@ -184,14 +177,14 @@ def main():
         base_acc=base_accuracy,
         pruned_acc=pruned_accuracy,
         lw_acc_int8=lw_accuracy_int8,
-        lw_acc_int8_huff=lw_accuracy_int8_huff,
+        # lw_acc_int8_huff=lw_accuracy_int8_huff,
         fp32_bytes=fp32_weight_bytes,
         int8_bytes=int8_bytes_est,
-        int8_huff_bytes=int8_huff_bytes_est,
+        # int8_huff_bytes=int8_huff_bytes_est,
         peak_layer_bytes=peak_layer_fp32_bytes,
         t_base=t_base,
         t_int8=t_int8,
-        t_int8_huff=t_int8_huff,
+        # t_int8_huff=t_int8_huff,
         save_path_int8=save_path_int8,
         save_path_int8_huff=save_path_int8_huff,
     )

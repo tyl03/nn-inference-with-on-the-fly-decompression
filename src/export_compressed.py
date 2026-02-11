@@ -22,9 +22,6 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from .quantization import compute_scale, symmetric_quantization
-
-
 def export_fcn_to_compressed(model: nn.Module) -> dict:
     """
     Converts a FCN to a compressed representation:
@@ -53,15 +50,15 @@ def export_fcn_to_compressed(model: nn.Module) -> dict:
             b = layer.bias.detach().cpu() if layer.bias is not None else None
             
             # Compute per-layer scale and quantize to int8
-            s_w = compute_scale(W) # float
-            W_q = symmetric_quantization(W, s_w) # int8 tensor
+            # s_w = compute_scale(W) # float
+            # W_q = symmetric_quantization(W, s_w) # int8 tensor
             
             layers_out.append({
                 "type": "linear",
                 "in_features": layer.in_features,
                 "out_features": layer.out_features,
-                "W_q": W_q, # int8 weights
-                "s_w": float(s_w), # scale needed for dequantization
+                # "W_q": W_q, # int8 weights
+                # "s_w": float(s_w), # scale needed for dequantization
                 "b": b, # bias kept as FP32
             })
             
