@@ -1,0 +1,102 @@
+Metadata-Version: 2.4
+Name: nn-compression
+Version: 0.1.0
+Summary: Memory-efficient neural network inference with compression
+Author-email: Tülin Cetinkaya <tulincetinkaya@gmail.com>
+License-Expression: MIT
+Project-URL: Repository, https://github.com/tyl03/nn-inference-with-on-the-fly-decompression.git
+Keywords: neural network compression,model pruning
+Classifier: Programming Language :: Python :: 3
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: torch>=1.8.0
+Requires-Dist: torchvision>=0.9.0
+Requires-Dist: numpy>=1.19.0
+Requires-Dist: matplotlib>=3.3.0
+Requires-Dist: zstandard==0.25.0
+Provides-Extra: dev
+Requires-Dist: pytest==8.4.0; extra == "dev"
+Dynamic: license-file
+
+# Bachelor Project - PyTorch
+
+This project explores quantization techniques in PyTorch, with a focus on memory-efficient inference suitable for CPU-based, memory-constrained devices.
+
+---
+
+## Requirements
+
+- Python 3.10 or newer (tested with Python 3.12)
+- No GPU required (CPU-only PyTorch)
+- Windows (tested)
+
+---
+
+## Setup (Windows)
+
+Create and activate a virtual environment:
+
+```cmd
+py -m venv myenv
+myenv\Scripts\activate
+```
+
+---
+
+## Install dependencies
+
+```cmd
+python -m pip install -r requirements.txt
+```
+
+## Run script (example)
+
+```cmd
+python scripts\test.py
+```
+
+---
+
+## Running scripts
+
+Run all scripts from the project root using:
+
+```python
+python -m scripts.train_mnist
+python -m scripts.pipeline
+```
+
+---
+
+## Running tests
+
+To run all tests from the project root:
+
+```python
+python -m pytest -q
+```
+
+---
+
+## Project Structure
+
+```text
+.
+├── src/
+│   └── quantization.py
+├── scripts/
+│   └── test.py
+├── requirements.txt
+├── README.md
+└── .gitignore
+```
+
+---
+
+## Continous Integration
+
+This project uses GitHub Actions to automatically verify that the code runs on a clean environment. On each push, the workflow installs dependencies from `requirements.txt` and executes a small test script to ensure that the project is reproducible and free of setup errors.
+
+---

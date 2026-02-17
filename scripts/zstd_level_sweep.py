@@ -18,9 +18,9 @@ import time
 import torch
 import matplotlib.pyplot as plt
 
-from src.exp_utils import get_device, build_model, load_weights
-from src.pruning import global_magnitude_prune_linear_layers, make_pruning_permanent
-from src.export_compressed import export_fcn_to_compressed, estimate_compressed_payload_bytes, decompress_linear_layer
+from nn_compression.exp_utils import get_device, build_model, load_weights
+from nn_compression.pruning import global_magnitude_prune_linear_layers, make_pruning_permanent
+from nn_compression.export_compressed import export_fcn_to_compressed, estimate_compressed_payload_bytes, decompress_linear_layer
 
 
 def _measure_decompression_time(compressed: dict) -> float:

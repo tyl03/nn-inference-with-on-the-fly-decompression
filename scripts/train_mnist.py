@@ -16,9 +16,9 @@ import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from src.fcn import FCN
-from src.exp_utils import get_device
-from src.training import train_one_epoch, evaluate
+from nn_compression.fcn import FCN
+from nn_compression.exp_utils import get_device
+from nn_compression.training import train_one_epoch, evaluate
 
 
 def plot_training_curves(

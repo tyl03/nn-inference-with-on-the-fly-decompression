@@ -14,7 +14,7 @@ Outputs a table per prune amount.
 import torch
 import torch.nn as nn
 
-from src.exp_utils import (
+from nn_compression.exp_utils import (
     get_device,
     load_test_loader,
     build_model,
@@ -23,8 +23,8 @@ from src.exp_utils import (
     estimate_compressed_storage_bytes_from_model,
     apply_qdq_to_linear_weights_inplace
 )
-from src.training import evaluate
-from src.pruning import magnitude_prune_linear_layers, make_pruning_permanent, model_sparsity
+from nn_compression.training import evaluate
+from nn_compression.pruning import magnitude_prune_linear_layers, make_pruning_permanent, model_sparsity
 
 
 def main():

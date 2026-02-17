@@ -16,7 +16,7 @@ import time
 import torch
 import torch.nn.functional as F
 
-from src.export_compressed import decompress_linear_layer
+from nn_compression.export_compressed import decompress_linear_layer
 
 def _flatten_input(x: torch.Tensor) -> torch.Tensor:
     return x.view(x.size(0), -1)

@@ -24,8 +24,8 @@ from torch.utils.data import DataLoader
 from torchvision.datasets import FakeData
 from torchvision import transforms
 
-from src.fcn import FCN
-from src.training import train_one_epoch, evaluate
+from src.nn_compression.fcn import FCN
+from src.nn_compression.training import train_one_epoch, evaluate
 
 
 def test_training_and_eval_runs_on_small_subset():

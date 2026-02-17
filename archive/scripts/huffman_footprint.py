@@ -17,7 +17,7 @@ import pickle
 import torch
 import torch.nn as nn
 
-from src.exp_utils import (
+from nn_compression.exp_utils import (
     get_device,
     load_test_loader,
     build_model,
@@ -25,8 +25,8 @@ from src.exp_utils import (
     estimate_fp32_weight_bytes,
     fmt_bytes,
 )
-from src.training import evaluate
-from src.pruning import magnitude_prune_linear_layers, make_pruning_permanent, model_sparsity
+from nn_compression.training import evaluate
+from nn_compression.pruning import magnitude_prune_linear_layers, make_pruning_permanent, model_sparsity
 from src.huffman import huffman_compress_tensor, huffman_decompress_tensor
 
 

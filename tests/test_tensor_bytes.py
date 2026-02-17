@@ -1,6 +1,6 @@
 import torch
 
-from src.tensor_bytes_utils import to_fp32_bytes, from_fp32_bytes
+from src.nn_compression.tensor_bytes_utils import to_fp32_bytes, from_fp32_bytes
 
 
 def test_fp32_bytes_roundtrip():

@@ -1,6 +1,6 @@
 import torch
 
-from src.blockwise_utils import (
+from src.nn_compression.blockwise_utils import (
     iter_row_blocks,
     num_blocks,
     block_shape,
@@ -8,8 +8,8 @@ from src.blockwise_utils import (
     decompress_weight_block_fp32,
     decompress_bias_fp32,
 )
-from src.zstd_utils import zstd_compress, zstd_decompress
-from src.tensor_bytes_utils import to_fp32_bytes, from_fp32_bytes
+from src.nn_compression.zstd_utils import zstd_compress, zstd_decompress
+from src.nn_compression.tensor_bytes_utils import to_fp32_bytes, from_fp32_bytes
 
 
 def test_iter_row_blocks_shapes_and_ranges():

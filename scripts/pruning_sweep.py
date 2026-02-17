@@ -12,14 +12,14 @@ import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
 
-from src.exp_utils import (
+from nn_compression.exp_utils import (
     get_device,
     load_test_loader,
     build_model,
     load_weights,
 )
-from src.training import evaluate
-from src.pruning import (
+from nn_compression.training import evaluate
+from nn_compression.pruning import (
     global_magnitude_prune_linear_layers,
     make_pruning_permanent,
     model_sparsity,

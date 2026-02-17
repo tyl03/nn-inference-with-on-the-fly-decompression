@@ -15,8 +15,8 @@ import pytest
 import torch
 import torch.nn as nn
 
-from src.fcn import FCN
-from src.pruning import (
+from src.nn_compression.fcn import FCN
+from src.nn_compression.pruning import (
     magnitude_prune_linear_layers,
     make_pruning_permanent,
     model_sparsity,

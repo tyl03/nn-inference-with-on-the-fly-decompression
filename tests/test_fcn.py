@@ -16,7 +16,7 @@ as expected.
 
 import torch
 import torch.nn as nn
-from src.fcn import FCN
+from src.nn_compression.fcn import FCN
 
 def test_forward_shape_for_img_input():
     # Create the model

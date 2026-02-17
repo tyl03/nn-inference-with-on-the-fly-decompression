@@ -1,4 +1,4 @@
-from src.zstd_utils import zstd_compress, zstd_decompress
+from src.nn_compression.zstd_utils import zstd_compress, zstd_decompress
 
 
 def test_zstd_compress_decompress():

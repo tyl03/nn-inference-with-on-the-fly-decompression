@@ -10,7 +10,7 @@ Quantization experiment:
 import torch
 import torch.nn as nn
 
-from src.exp_utils import (
+from nn_compression.exp_utils import (
     get_device,
     load_test_loader,
     build_model,
@@ -20,7 +20,7 @@ from src.exp_utils import (
     fmt_bytes,
     apply_qdq_to_linear_weights_inplace
 )
-from src.training import evaluate
+from nn_compression.training import evaluate
 
 
 def main():

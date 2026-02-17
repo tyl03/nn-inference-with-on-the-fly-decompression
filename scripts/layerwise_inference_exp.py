@@ -20,7 +20,7 @@ import time
 import torch
 import torch.nn as nn
 
-from src.exp_utils import (
+from nn_compression.exp_utils import (
     get_device,
     load_test_loader,
     build_model,
@@ -29,16 +29,16 @@ from src.exp_utils import (
     estimate_peak_decompressed_layer_bytes,
     fmt_bytes,
 )
-from src.training import evaluate
-from src.pruning import global_magnitude_prune_linear_layers, make_pruning_permanent, model_sparsity
-from src.export_compressed import (
+from nn_compression.training import evaluate
+from nn_compression.pruning import global_magnitude_prune_linear_layers, make_pruning_permanent, model_sparsity
+from nn_compression.export_compressed import (
     export_fcn_to_compressed,
     save_compressed,
     load_compressed,
     estimate_compressed_payload_bytes
 )
     
-from src.layerwise_inference import layerwise_evaluate_accuracy, measure_layerwise_inference_time
+from nn_compression.layerwise_inference import layerwise_evaluate_accuracy, measure_layerwise_inference_time
 
 
 @torch.no_grad()
