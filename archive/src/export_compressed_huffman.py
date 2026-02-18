@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import torch
 
-from .huffman import huff_compress_int8_tensor, estimate_huff_pkg_bytes
+from .huffman import estimate_huff_pkg_bytes, huff_compress_int8_tensor
 
 
 def compress_int8_model_with_huffman(compressed_int8: dict) -> dict:
@@ -20,14 +20,16 @@ def compress_int8_model_with_huffman(compressed_int8: dict) -> dict:
 
     for entry in compressed_int8["layers"]:
         if entry["type"] == "linear":
-            out_layers.append({
-                "type": "linear",
-                "in_features": entry["in_features"],
-                "out_features": entry["out_features"],
-                "W_q_huff": huff_compress_int8_tensor(entry["W_q"]),
-                "s_w": float(entry["s_w"]),
-                "b": entry["b"],  # keep bias FP32
-            })
+            out_layers.append(
+                {
+                    "type": "linear",
+                    "in_features": entry["in_features"],
+                    "out_features": entry["out_features"],
+                    "W_q_huff": huff_compress_int8_tensor(entry["W_q"]),
+                    "s_w": float(entry["s_w"]),
+                    "b": entry["b"],  # keep bias FP32
+                }
+            )
         else:
             out_layers.append(entry)
 

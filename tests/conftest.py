@@ -1,6 +1,7 @@
 """
 Adds the project root to sys.path, so that imports work in test files.
 """
+
 import sys
 from pathlib import Path
 

@@ -29,6 +29,8 @@ classifiers = [
 [project.optional-dependencies]
 dev = [
     "pytest==8.4.0",
+    "black>=24.0.0",
+    "ruff>=0.4.0",
 ]
 
 [project.urls]
@@ -40,3 +42,28 @@ license-files = ["LICEN[CS]E*"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.black]
+line-length = 88 # Keep consistent formatting
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+fix = true
+
+[tool.ruff.lint]
+# E = PEP8 errors
+# F = logical errors (unused imports, etc.)
+# I = import sorting
+select = [
+    "E",
+    "F",
+    "I",
+]
+
+# Ignore the long line rule as it is handled by Black
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["nn_compression"]

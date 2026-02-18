@@ -7,7 +7,6 @@ What these tests check:
 """
 
 import torch
-
 from src.huffman import (
     huff_compress_int8_tensor,
     huff_decompress_int8_tensor,

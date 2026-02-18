@@ -20,11 +20,12 @@ Notes:
 """
 
 from __future__ import annotations
-from .zstd_utils import zstd_compress, zstd_decompress
 
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
+
+from .zstd_utils import zstd_compress, zstd_decompress
 
 FORMAT_VERSION = 1
 
@@ -43,7 +44,7 @@ def _from_fp32_bytes(data: bytes, shape: tuple[int, ...]) -> torch.Tensor:
     """
     arr = np.frombuffer(data, dtype=np.float32).reshape(shape)
     return torch.from_numpy(arr.copy())
-    
+
 
 def export_fcn_to_compressed(model: nn.Module, *, zstd_level: int = 3) -> dict:
     """
@@ -62,37 +63,35 @@ def export_fcn_to_compressed(model: nn.Module, *, zstd_level: int = 3) -> dict:
         raise ValueError("Model 'net' must be an nn.Sequential.")
     if not isinstance(zstd_level, int):
         raise ValueError("zstd_level must be an integer.")
-    
+
     layers_out: list[dict] = []
-    
+
     # We export layers in the exact order they are used in forward().
     for layer in model.net:
         if isinstance(layer, nn.Linear):
             W = layer.weight
             b = layer.bias
-            
+
             W_raw = _to_fp32_bytes(W)
             b_raw = _to_fp32_bytes(b) if b is not None else None
-            
+
             W_zstd = zstd_compress(W_raw, level=zstd_level)
-            b_zstd = zstd_compress(b_raw, level=zstd_level) if b_raw is not None else None
-            
+            b_zstd = (
+                zstd_compress(b_raw, level=zstd_level) if b_raw is not None else None
+            )
+
             layers_out.append(
                 {
                     "type": "linear",
                     "in_features": int(layer.in_features),
                     "out_features": int(layer.out_features),
-
                     "dtype": "float32",
                     "weight_shape": tuple(W.shape),
                     "bias_shape": tuple(b.shape) if b is not None else None,
-
                     "zstd_level": int(zstd_level),
-
                     # compressed payloads (bytes)
                     "W_zstd": W_zstd,
                     "b_zstd": b_zstd,
-
                     # optional debug metadata (helps validate compression ratio)
                     "W_raw_nbytes": len(W_raw),
                     "W_zstd_nbytes": len(W_zstd),
@@ -100,17 +99,14 @@ def export_fcn_to_compressed(model: nn.Module, *, zstd_level: int = 3) -> dict:
                     "b_zstd_nbytes": len(b_zstd) if b_zstd is not None else 0,
                 }
             )
-            
+
         # ReLU layer: store marker only
         elif isinstance(layer, nn.ReLU):
-            layers_out.append({
-                "type": "relu"
-            })
-            
+            layers_out.append({"type": "relu"})
+
         else:
             raise ValueError(f"Unsupported layer type in export: {type(layer)}")
-        
-    
+
     compressed = {
         "format_version": FORMAT_VERSION,
         "model_type": "FCN",
@@ -118,7 +114,7 @@ def export_fcn_to_compressed(model: nn.Module, *, zstd_level: int = 3) -> dict:
         "compression": "zstd",
         "layers": layers_out,
     }
-    
+
     return compressed
 
 
@@ -127,8 +123,8 @@ def save_compressed(compressed: dict, path: str) -> None:
     Save exported dict to disk.
     """
     torch.save(compressed, path)
-    
-    
+
+
 def load_compressed(path: str) -> dict:
     """
     Load exported dict from disk.
@@ -141,13 +137,13 @@ def estimate_compressed_payload_bytes(compressed: dict) -> int:
     Sum of stored compressed payload bytes (W_zstd + b_zstd).
     """
     total = 0
-    
+
     for entry in compressed["layers"]:
         if entry["type"] == "linear":
             total += len(entry["W_zstd"])
             if entry["b_zstd"] is not None:
                 total += len(entry["b_zstd"])
-                
+
     return total
 
 

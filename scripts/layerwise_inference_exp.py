@@ -17,32 +17,41 @@ from __future__ import annotations
 
 import os
 import time
+
 import torch
 import torch.nn as nn
 
 from nn_compression.exp_utils import (
-    get_device,
-    load_test_loader,
     build_model,
-    load_weights,
     estimate_fp32_weight_bytes,
     estimate_peak_decompressed_layer_bytes,
     fmt_bytes,
+    get_device,
+    load_test_loader,
+    load_weights,
+)
+from nn_compression.export_compressed import (
+    estimate_compressed_payload_bytes,
+    export_fcn_to_compressed,
+    load_compressed,
+    save_compressed,
+)
+from nn_compression.layerwise_inference import (
+    layerwise_evaluate_accuracy,
+    measure_layerwise_inference_time,
+)
+from nn_compression.pruning import (
+    global_magnitude_prune_linear_layers,
+    make_pruning_permanent,
+    model_sparsity,
 )
 from nn_compression.training import evaluate
-from nn_compression.pruning import global_magnitude_prune_linear_layers, make_pruning_permanent, model_sparsity
-from nn_compression.export_compressed import (
-    export_fcn_to_compressed,
-    save_compressed,
-    load_compressed,
-    estimate_compressed_payload_bytes
-)
-    
-from nn_compression.layerwise_inference import layerwise_evaluate_accuracy, measure_layerwise_inference_time
 
 
 @torch.no_grad()
-def measure_baseline_inference_time(model, loader, device, warmup_batches=5, timed_batches=30):
+def measure_baseline_inference_time(
+    model, loader, device, warmup_batches=5, timed_batches=30
+):
     model.eval()
     it = iter(loader)
 
@@ -78,9 +87,11 @@ def print_report(
     t_lw: float,
     save_path: str,
 ) -> None:
-    ratio_payload = fp32_bytes / zstd_payload_bytes if zstd_payload_bytes > 0 else float("inf")
+    ratio_payload = (
+        fp32_bytes / zstd_payload_bytes if zstd_payload_bytes > 0 else float("inf")
+    )
     ratio_file = fp32_bytes / file_bytes if file_bytes > 0 else float("inf")
-    
+
     payload_fraction = (zstd_payload_bytes / file_bytes) if file_bytes > 0 else 0.0
 
     print("\n" + "=" * 78)
@@ -96,12 +107,18 @@ def print_report(
     print("\n[Accuracy]")
     print(f"  Baseline FP32          : {base_acc:.4f}")
     print(f"  Pruned FP32            : {pruned_acc:.4f}")
-    print(f"  Layerwise Zstd (FP32)  : {lw_acc_zstd:.4f} (drop vs pruned {pruned_acc - lw_acc_zstd:+.4f})")
+    print(
+        f"  Layerwise Zstd (FP32)  : {lw_acc_zstd:.4f} (drop vs pruned {pruned_acc - lw_acc_zstd:+.4f})"
+    )
 
     print("\n[Storage]")
     print(f"  FP32 weights (dense)       : {fmt_bytes(fp32_bytes)}")
-    print(f"  Zstd payload (W+b only)    : {fmt_bytes(zstd_payload_bytes)}   ({ratio_payload:.2f}x smaller)")
-    print(f"  Total file size (on disk)  : {fmt_bytes(file_bytes)}   ({ratio_file:.2f}x smaller)")
+    print(
+        f"  Zstd payload (W+b only)    : {fmt_bytes(zstd_payload_bytes)}   ({ratio_payload:.2f}x smaller)"
+    )
+    print(
+        f"  Total file size (on disk)  : {fmt_bytes(file_bytes)}   ({ratio_file:.2f}x smaller)"
+    )
     print(f"  Overhead (meta)            : {fmt_bytes(overhead_bytes)}")
     print(f"  Payload fraction           : {payload_fraction*100:.2f}%")
 
@@ -117,15 +134,16 @@ def print_report(
     print("=" * 78 + "\n")
 
 
-
 def main():
     device = get_device()
-    layer_device = torch.device("cpu")  # Layerwise inference on CPU to highlight time differences
+    layer_device = torch.device(
+        "cpu"
+    )  # Layerwise inference on CPU to highlight time differences
     loss_fn = nn.CrossEntropyLoss()
     test_loader = load_test_loader()
 
     ckpt_path = "fcn_mnist_best.pt"
-    
+
     prune_amount = 0.85
     zstd_level = 7
 
@@ -146,20 +164,24 @@ def main():
 
     # 3) Export zstd compressed model
     os.makedirs("results/zstd", exist_ok=True)
-    save_path = f"results/zstd/fcn_mnist_pruned_{int(prune_amount*100)}_zstd_lvl{zstd_level}.pt"
-    
+    save_path = (
+        f"results/zstd/fcn_mnist_pruned_{int(prune_amount*100)}_zstd_lvl{zstd_level}.pt"
+    )
+
     packed = export_fcn_to_compressed(pruned_model, zstd_level=zstd_level)
     save_compressed(packed, save_path)
-    
+
     compressed = load_compressed(save_path)
-    
+
     # Measure compressed payload bytes and overhead
     zstd_payload_bytes = estimate_compressed_payload_bytes(compressed)
     file_bytes = os.path.getsize(save_path)
-    overhead_bytes = file_bytes - zstd_payload_bytes 
+    overhead_bytes = file_bytes - zstd_payload_bytes
 
     # 4) Layerwise inference accuracy
-    lw_accuracy_zstd = layerwise_evaluate_accuracy(compressed, test_loader, layer_device)
+    lw_accuracy_zstd = layerwise_evaluate_accuracy(
+        compressed, test_loader, layer_device
+    )
 
     # 5) Storage + RAM estimates
     fp32_bytes = estimate_fp32_weight_bytes(pruned_model)
@@ -167,7 +189,9 @@ def main():
     peak_layer_fp32_bytes = estimate_peak_decompressed_layer_bytes(pruned_model)
 
     # 6) Timing
-    t_base = measure_baseline_inference_time(base_model.to(layer_device), test_loader, layer_device)
+    t_base = measure_baseline_inference_time(
+        base_model.to(layer_device), test_loader, layer_device
+    )
     t_lw = measure_layerwise_inference_time(compressed, test_loader, layer_device)
 
     # Report

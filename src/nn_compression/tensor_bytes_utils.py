@@ -7,6 +7,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
+
 def to_fp32_bytes(tensor: torch.Tensor) -> bytes:
     """
     Convert a PyTorch tensor to raw FP32 bytes.

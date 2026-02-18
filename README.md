@@ -1,80 +1,218 @@
-# Bachelor Project - PyTorch
+# Efficient Neural Network Inference with On-the-Fly Decompression
 
-This project explores quantization techniques in PyTorch, with a focus on memory-efficient inference suitable for CPU-based, memory-constrained devices.
+![CI](https://github.com/tyl03/nn-inference-with-on-the-fly-decompression/actions/workflows/ci.yml/badge.svg)
 
----
+This project investigates memory-efficient inference of pruned neural networks by storing model weights in compressed form and decompressing one layer at a time during inference.
+
+Instead of loading the full model into memory, only a single layer is decompressed, evaluated, and discarded before moving to the next layer. This significantly reduces peak memory usage at the cost of additional decompression overhead.
+
+The approach is suitable for CPU-only environments and memory-constrained devices.
+
+## Table of Contents
+
+- [Efficient Neural Network Inference with On-the-Fly Decompression](#efficient-neural-network-inference-with-on-the-fly-decompression)
+  - [Table of Contents](#table-of-contents)
+  - [Requirements](#requirements)
+  - [Installation](#installation)
+    - [Clone the repository](#clone-the-repository)
+    - [Create a virtual environment](#create-a-virtual-environment)
+    - [Install the project](#install-the-project)
+      - [With Make (Linux / macOS / WSL)](#with-make-linux--macos--wsl)
+      - [Without Make (Works everywhere)](#without-make-works-everywhere)
+  - [Usage](#usage)
+  - [Running Experiments](#running-experiments)
+  - [Code Quality \& Testing](#code-quality--testing)
+  - [Project Structure](#project-structure)
+  - [Continuous Integration](#continuous-integration)
+  - [Credits](#credits)
+  - [License](#license)
 
 ## Requirements
 
 - Python 3.10 or newer (tested with Python 3.12)
-- No GPU required (CPU-only PyTorch)
-- Windows (tested)
+- Linux / macOS / WSL recommended for full `Makefile` support
+- Windows Powershell supported (without `make`)
+- CPU-only environment (No GPU needed)
 
----
+## Installation
 
-## Setup (Windows)
+### Clone the repository
 
-Create and activate a virtual environment:
-
-```cmd
-py -m venv myenv
-myenv\Scripts\activate
+```bash
+git clone https://github.com/tyl03/nn-inference-with-on-the-fly-decompression.git
+cd nn-inference-with-on-the-fly-decompression
 ```
 
----
+### Create a virtual environment
 
-## Install dependencies
+Windows:
 
-```cmd
-python -m pip install -r requirements.txt
+```bash
+python -m venv .venv
+.venv\Scripts\activate
 ```
 
-## Run script (example)
+macOS/Linux:
 
-```cmd
-python scripts\test.py
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
----
+### Install the project
 
-## Running scripts
+#### With Make (Linux / macOS / WSL)
 
-Run all scripts from the project root using:
+```bash
+make install
+```
+
+You can then verify that everything works:
+
+```bash
+make check
+```
+
+Available Make commands:
+
+```bash
+make install # Install project with dev dependencies
+make format # Auto-format code (Black + Ruff fix)
+make lint # Check formatting without modifying files
+make test # Run pytest
+make check # Run lint + test
+```
+
+#### Without Make (Works everywhere)
+
+Install project with development dependencies:
+
+```bash
+pip install -e ".[dev]"
+```
+
+Format code:
+
+```bash
+black .
+ruff check . --fix
+```
+
+Check formatting without modifying code:
+
+```bash
+ruff check .
+black --check .
+```
+
+Run tests:
+
+```bash
+pytest
+```
+
+## Usage
+
+After installation, the package can be imported as:
 
 ```python
-python -m scripts.train_mnist
-python -m scripts.pipeline
+from nn_compression.pruning import global_magnitude_prune_linear_layers
+from nn_compression.export_compressed import export_fcn_to_compressed
+from nn_compression.layerwise_inference import layerwise_evaluate_accuracy
 ```
 
----
+## Running Experiments
 
-## Running tests
+To reproduce the main experiment:
 
-To run all tests from the project root:
-
-```python
-python -m pytest -q
+```bash
+python scripts/layerwise_inference_exp.py
 ```
 
----
+This compares:
+
+- Baseline FP32 inference
+- Pruned FP32 inference
+- Layerwise Zstd compressed inference
+
+It reports:
+
+- Accuracy
+- Storage footprint
+- Peak decompressed layer size
+- Inference timing
+
+## Code Quality & Testing
+
+This project enforces consistent formatting and linting using:
+
+- **Black** (formatter)
+- **Ruff** (linter + import sorting)
+- **PyTest** (unit testing)
+
+Before committing changes, run:
+
+```bash
+make check
+```
+
+Or manually:
+
+```bash
+ruff check .
+black --check .
+pytest
+```
+
+All tests must pass before merging changes.
 
 ## Project Structure
 
 ```text
 .
 ├── src/
-│   └── quantization.py
+│   └── nn_compression/
+│       ├── pruning.py
+│       ├── training.py
+│       ├── export_compressed.py
+│       ├── layerwise_inference.py
+│       └── ...
 ├── scripts/
-│   └── test.py
-├── requirements.txt
+├── tests/
+├── pyproject.toml
 ├── README.md
-└── .gitignore
+└── LICENSE
 ```
 
----
+The project follows the standard `src/` layout for Python packaging.
 
-## Continous Integration
+## Continuous Integration
 
-This project uses GitHub Actions to automatically verify that the code runs on a clean environment. On each push, the workflow installs dependencies from `requirements.txt` and executes a small test script to ensure that the project is reproducible and free of setup errors.
+GitHub Actions automatically:
 
----
+- Creates a fresh environment
+- Installs the package using `pip install -e ".[dev]"`
+- Runs the test suite
+
+This ensures portability and reproducibility.
+
+## Credits
+
+```markdown
+Author:
+Tülin Cetinkaya
+BSc Software Technology, Technical University of Denmark (DTU)
+
+This project was developed as part of a Bachelor's thesis on memory-efficient neural network inference.
+
+The project builds upon:
+- PyTorch
+- Zstandard
+- NumPy
+- Matplotlib
+- PyTest
+```
+
+## License
+
+This project is licensed under the MIT License.

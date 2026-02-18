@@ -13,17 +13,21 @@ Key idea:
 from __future__ import annotations
 
 import time
+
 import torch
 import torch.nn.functional as F
 
 from nn_compression.export_compressed import decompress_linear_layer
+
 
 def _flatten_input(x: torch.Tensor) -> torch.Tensor:
     return x.view(x.size(0), -1)
 
 
 @torch.no_grad()
-def layerwise_forward(compressed: dict, x: torch.Tensor, device: torch.device) -> torch.Tensor:
+def layerwise_forward(
+    compressed: dict, x: torch.Tensor, device: torch.device
+) -> torch.Tensor:
     """
     Forward pass using a Zstd-compressed model dict.
     Decompresses one Linear layer at a time.
@@ -31,49 +35,51 @@ def layerwise_forward(compressed: dict, x: torch.Tensor, device: torch.device) -
     # 1) Flatten input
     if x.dim() > 2:
         x = _flatten_input(x)
-    
+
     x = x.to(device)
-    
+
     # 2) Process layers in order
     for entry in compressed["layers"]:
         layer_type = entry["type"]
-        
+
         if layer_type == "linear":
             # Load compressed weights
             W, b = decompress_linear_layer(entry)
             W = W.to(device)
             b = b.to(device) if b is not None else None
-            
+
             # Compute: x <- x @ W^T + b
             x = F.linear(x, W, b)
-            
+
             # Discard decompressed weights
             del W, b
-            
+
         elif layer_type == "relu":
             x = F.relu(x)
-            
+
         else:
             raise ValueError(f"Unknown layer type in compressed model: {layer_type}")
-        
-    return x # logits
+
+    return x  # logits
 
 
 @torch.no_grad()
-def layerwise_evaluate_accuracy(compressed: dict, loader, device: torch.device) -> float:
+def layerwise_evaluate_accuracy(
+    compressed: dict, loader, device: torch.device
+) -> float:
     """
     Accuracy evaluation for a Zstd-compressed model using layerwise inference.
     """
     correct = 0
     total = 0
-    
+
     with torch.inference_mode():
         for x, y in loader:
             logits = layerwise_forward(compressed, x, device)
             preds = logits.argmax(dim=1).cpu()
             correct += (preds == y).sum().item()
             total += y.numel()
-        
+
     return correct / total if total > 0 else 0.0
 
 

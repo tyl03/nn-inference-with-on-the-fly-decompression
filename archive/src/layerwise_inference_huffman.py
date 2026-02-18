@@ -9,21 +9,26 @@ Per Linear layer:
 
 from __future__ import annotations
 
+import time
+
 import torch
 import torch.nn.functional as F
-import time
 
 from .huffman import huff_decompress_int8_tensor
 
 
 @torch.no_grad()
-def layerwise_forward_int8_huffman(compressed_huff: dict, x: torch.Tensor, device: torch.device) -> torch.Tensor:
+def layerwise_forward_int8_huffman(
+    compressed_huff: dict, x: torch.Tensor, device: torch.device
+) -> torch.Tensor:
     x = x.to(device)
     x = x.view(x.size(0), -1)
 
     expected_in_dim = int(compressed_huff["in_dim"])
     if x.shape[1] != expected_in_dim:
-        raise ValueError(f"Expected input with {expected_in_dim} features, got {x.shape[1]}")
+        raise ValueError(
+            f"Expected input with {expected_in_dim} features, got {x.shape[1]}"
+        )
 
     for entry in compressed_huff["layers"]:
         if entry["type"] == "linear":
@@ -48,7 +53,9 @@ def layerwise_forward_int8_huffman(compressed_huff: dict, x: torch.Tensor, devic
 
 
 @torch.no_grad()
-def layerwise_evaluate_accuracy_int8_huffman(compressed_huff: dict, loader, device: torch.device) -> float:
+def layerwise_evaluate_accuracy_int8_huffman(
+    compressed_huff: dict, loader, device: torch.device
+) -> float:
     correct = 0
     total = 0
 

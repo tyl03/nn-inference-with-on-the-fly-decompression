@@ -8,12 +8,13 @@ This works well after quantization because the alphabet is small and repetitive.
 from __future__ import annotations
 
 import pickle
+from collections import Counter
+
 import numpy as np
 import torch
-from collections import Counter
 from dahuffman import HuffmanCodec
 
-HUFF_EOF = -1 # Special symbol to indicate end-of-data in Huffman coding
+HUFF_EOF = -1  # Special symbol to indicate end-of-data in Huffman coding
 
 
 def huff_compress_int8_tensor(t: torch.Tensor) -> dict:

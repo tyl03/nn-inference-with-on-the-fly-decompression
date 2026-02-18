@@ -11,14 +11,14 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
+from .export_compressed import (
+    estimate_compressed_payload_bytes,
+    export_fcn_to_compressed,
+    load_compressed,
+    save_compressed,
+)
 from .fcn import FCN
 
-from .export_compressed import (
-    export_fcn_to_compressed,
-    save_compressed,
-    load_compressed,
-    estimate_compressed_payload_bytes,
-)
 
 # DEVICE
 def get_device() -> torch.device:
@@ -29,10 +29,7 @@ def get_device() -> torch.device:
 def load_test_loader(batch_size: int = 256) -> DataLoader:
     transform = transforms.ToTensor()
     test_ds = datasets.MNIST(
-        root="data", 
-        train=False, 
-        download=True, 
-        transform=transform
+        root="data", train=False, download=True, transform=transform
     )
     return DataLoader(test_ds, batch_size=batch_size, shuffle=False)
 
@@ -40,8 +37,8 @@ def load_test_loader(batch_size: int = 256) -> DataLoader:
 # MODEL HELPERS
 def build_model(device: torch.device) -> FCN:
     return FCN(
-        in_dim=28 * 28, 
-        hidden_dims=[512, 256], 
+        in_dim=28 * 28,
+        hidden_dims=[512, 256],
         out_dim=10,
     ).to(device)
 
@@ -57,8 +54,8 @@ def estimate_fp32_weight_bytes(model: nn.Module) -> int:
     total = 0
     for m in model.modules():
         if isinstance(m, nn.Linear):
-            total += m.weight.numel() * 4 # float32 = 4 bytes
-            
+            total += m.weight.numel() * 4  # float32 = 4 bytes
+
     return total
 
 
@@ -67,7 +64,7 @@ def estimate_peak_decompressed_layer_bytes(model: nn.Module) -> int:
     for m in model.modules():
         if isinstance(m, nn.Linear):
             peak = max(peak, m.weight.numel() * 4)
-            
+
     return peak
 
 

@@ -21,11 +21,11 @@ This test uses FakeData instead of MNIST to:
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from torchvision.datasets import FakeData
 from torchvision import transforms
+from torchvision.datasets import FakeData
 
 from src.nn_compression.fcn import FCN
-from src.nn_compression.training import train_one_epoch, evaluate
+from src.nn_compression.training import evaluate, train_one_epoch
 
 
 def test_training_and_eval_runs_on_small_subset():
@@ -65,9 +65,7 @@ def test_training_and_eval_runs_on_small_subset():
     )
 
     # Run evaluation
-    test_loss, test_accuracy = evaluate(
-        model, test_loader, loss_fn, device
-    )
+    test_loss, test_accuracy = evaluate(model, test_loader, loss_fn, device)
 
     # Sanity checks (NOT performance checks)
     assert isinstance(train_loss, float)

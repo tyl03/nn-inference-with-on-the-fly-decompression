@@ -11,6 +11,7 @@ During inference:
 """
 
 from __future__ import annotations
+
 import torch
 
 INT8_MIN = -127
