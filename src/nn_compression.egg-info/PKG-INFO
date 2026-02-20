@@ -3,21 +3,41 @@ Name: nn-compression
 Version: 0.1.0
 Summary: Memory-efficient neural network inference with compression
 Author-email: Tülin Cetinkaya <tulincetinkaya@gmail.com>
-License-Expression: MIT
+License: Copyright (c) 2026 Tülin Cetinkaya
+        
+        Permission is hereby granted, free of charge, to any person obtaining a copy
+        of this software and associated documentation files (the "Software"), to deal
+        in the Software without restriction, including without limitation the rights
+        to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+        copies of the Software, and to permit persons to whom the Software is
+        furnished to do so, subject to the following conditions:
+        
+        The above copyright notice and this permission notice shall be included in all
+        copies or substantial portions of the Software.
+        
+        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+        OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+        SOFTWARE.
+        
 Project-URL: Repository, https://github.com/tyl03/nn-inference-with-on-the-fly-decompression.git
 Keywords: neural network compression,model pruning
 Classifier: Programming Language :: Python :: 3
 Classifier: Operating System :: OS Independent
-Requires-Python: >=3.8
+Classifier: License :: OSI Approved :: MIT License
+Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 License-File: LICENSE
 Requires-Dist: torch>=1.8.0
 Requires-Dist: torchvision>=0.9.0
 Requires-Dist: numpy>=1.19.0
 Requires-Dist: matplotlib>=3.3.0
-Requires-Dist: zstandard==0.25.0
+Requires-Dist: zstandard>=0.23.0
 Provides-Extra: dev
-Requires-Dist: pytest==8.4.0; extra == "dev"
+Requires-Dist: pytest>=7.4.0; extra == "dev"
 Requires-Dist: black>=24.0.0; extra == "dev"
 Requires-Dist: ruff>=0.4.0; extra == "dev"
 Dynamic: license-file
@@ -40,10 +60,12 @@ The approach is suitable for CPU-only environments and memory-constrained device
   - [Installation](#installation)
     - [Clone the repository](#clone-the-repository)
     - [Create a virtual environment](#create-a-virtual-environment)
-    - [Install the project (including dev dependencies)](#install-the-project-including-dev-dependencies)
+    - [Install the project](#install-the-project)
+      - [With Make (Linux / macOS / WSL)](#with-make-linux--macos--wsl)
+      - [Without Make (Works everywhere)](#without-make-works-everywhere)
   - [Usage](#usage)
   - [Running Experiments](#running-experiments)
-  - [Running tests](#running-tests)
+  - [Code Quality \& Testing](#code-quality--testing)
   - [Project Structure](#project-structure)
   - [Continuous Integration](#continuous-integration)
   - [Credits](#credits)
@@ -52,6 +74,8 @@ The approach is suitable for CPU-only environments and memory-constrained device
 ## Requirements
 
 - Python 3.10 or newer (tested with Python 3.12)
+- Linux / macOS / WSL recommended for full `Makefile` support
+- Windows Powershell supported (without `make`)
 - CPU-only environment (No GPU needed)
 
 ## Installation
@@ -79,13 +103,57 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-### Install the project (including dev dependencies)
+### Install the project
+
+#### With Make (Linux / macOS / WSL)
+
+```bash
+make install
+```
+
+You can then verify that everything works:
+
+```bash
+make check
+```
+
+Available Make commands:
+
+```bash
+make install # Install project with dev dependencies
+make format # Auto-format code (Black + Ruff fix)
+make lint # Check formatting without modifying files
+make test # Run pytest
+make check # Run lint + test
+```
+
+#### Without Make (Works everywhere)
+
+Install project with development dependencies:
 
 ```bash
 pip install -e ".[dev]"
 ```
 
-This installs the package `nn_compression` and all required dependencies.
+Format code:
+
+```bash
+black .
+ruff check . --fix
+```
+
+Check formatting without modifying code:
+
+```bash
+ruff check .
+black --check .
+```
+
+Run tests:
+
+```bash
+pytest
+```
 
 ## Usage
 
@@ -118,11 +186,25 @@ It reports:
 - Peak decompressed layer size
 - Inference timing
 
-## Running tests
+## Code Quality & Testing
 
-From the project root:
+This project enforces consistent formatting and linting using:
+
+- **Black** (formatter)
+- **Ruff** (linter + import sorting)
+- **PyTest** (unit testing)
+
+Before committing changes, run:
 
 ```bash
+make check
+```
+
+Or manually:
+
+```bash
+ruff check .
+black --check .
 pytest
 ```
 
