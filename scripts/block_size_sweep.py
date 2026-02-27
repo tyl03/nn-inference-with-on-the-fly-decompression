@@ -38,7 +38,9 @@ from nn_compression.pruning import (
 )
 
 
-def estimate_peak_decompressed_block_bytes_from_model(model: nn.Module, block_size: int) -> int:
+def estimate_peak_decompressed_block_bytes_from_model(
+    model: nn.Module, block_size: int
+) -> int:
     """
     Peak decompressed weights for blockwise inference (FP32), estimated from model layer shapes.
     For each Linear layer: block_out = min(block_size, out_features), bytes = block_out*in_features*4
@@ -65,8 +67,8 @@ def save_time_and_peak_block_chart(results, out_path: str) -> None:
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     block_sizes = [r[0] for r in results]
-    peak_kb     = [r[1] / 1024 for r in results]
-    ms_sample   = [r[2] for r in results]
+    peak_kb = [r[1] / 1024 for r in results]
+    ms_sample = [r[2] for r in results]
 
     x_labels = [str(bs) for bs in block_sizes]
     x = list(range(len(block_sizes)))
@@ -76,12 +78,12 @@ def save_time_and_peak_block_chart(results, out_path: str) -> None:
 
     # ms/sample bars
     ax1.bar(
-        [i - width/2 for i in x],
+        [i - width / 2 for i in x],
         ms_sample,
         width=width,
         color="tab:blue",
         alpha=0.85,
-        label="Latency (ms/sample)"
+        label="Latency (ms/sample)",
     )
 
     ax1.set_xlabel("Block size")
@@ -93,12 +95,12 @@ def save_time_and_peak_block_chart(results, out_path: str) -> None:
     # Peak RAM bars
     ax2 = ax1.twinx()
     ax2.bar(
-        [i + width/2 for i in x],
+        [i + width / 2 for i in x],
         peak_kb,
         width=width,
         color="tab:orange",
         alpha=0.85,
-        label="Peak block (KB)"
+        label="Peak block (KB)",
     )
 
     ax2.set_ylabel("Peak block (KB)", color="tab:orange")
@@ -118,24 +120,26 @@ def save_time_and_peak_block_chart(results, out_path: str) -> None:
 
 def main():
     device = get_device()
-    infer_device = torch.device("cpu")  # blockwise inference on CPU for realistic timing
+    infer_device = torch.device(
+        "cpu"
+    )  # blockwise inference on CPU for realistic timing
     test_loader = load_test_loader()
-    
+
     batch_size = test_loader.batch_size
-    
+
     ckpt_path = "fcn_mnist_best.pt"
     prune_amount = 0.85
     zstd_level = 7
-    
+
     block_sizes = [8, 16, 32, 64, 128, 256]
-    
+
     # Build and prune model once
     model = build_model(device)
     load_weights(model, ckpt_path, device)
-    
+
     global_magnitude_prune_linear_layers(model, amount=prune_amount)
     make_pruning_permanent(model)
-    
+
     os.makedirs("results/zstd/sweeps", exist_ok=True)
 
     print("\nBlock size sweep (essential metrics)")
@@ -154,7 +158,9 @@ def main():
 
         peak_block_bytes = estimate_peak_decompressed_block_bytes_from_model(model, bs)
 
-        t_batch = measure_blockwise_inference_time(compressed, test_loader, infer_device)
+        t_batch = measure_blockwise_inference_time(
+            compressed, test_loader, infer_device
+        )
 
         ms_sample = (t_batch * 1000.0) / batch_size  # convert s/batch -> ms/sample
 
@@ -170,5 +176,5 @@ def main():
     print("-" * 60)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

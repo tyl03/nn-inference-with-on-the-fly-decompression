@@ -145,7 +145,7 @@ def save_ram_vs_latency_barchart(
     fig.tight_layout(rect=[0, 0, 1, 0.92])
     fig.savefig(out_path, dpi=200)
     plt.close(fig)
-    
+
 
 def estimate_peak_decompressed_block_bytes_from_model(
     model: nn.Module, block_size: int
@@ -169,6 +169,7 @@ def estimate_peak_decompressed_block_bytes_from_model(
             peak = max(peak, block_bytes)
     return peak
 
+
 @torch.no_grad()
 def measure_baseline_inference_time(
     model, loader, device, warmup_batches=5, timed_batches=30
@@ -189,7 +190,6 @@ def measure_baseline_inference_time(
         times.append(t1 - t0)
 
     return sum(times) / len(times)
-
 
 
 def _file_stats(path: str, payload_bytes: int) -> tuple[int, int, float]:
@@ -245,22 +245,34 @@ def print_report(
     print("\n[Accuracy]")
     print(f"  Baseline FP32             : {base_acc:.4f}")
     print(f"  Pruned FP32               : {pruned_acc:.4f}")
-    print(f"  Layerwise Zstd (FP32)     : {lw_acc:.4f} (drop vs pruned {pruned_acc - lw_acc:+.4f})")
-    print(f"  Blockwise Zstd (FP32)     : {bw_acc:.4f} (drop vs pruned {pruned_acc - bw_acc:+.4f})")
+    print(
+        f"  Layerwise Zstd (FP32)     : {lw_acc:.4f} (drop vs pruned {pruned_acc - lw_acc:+.4f})"
+    )
+    print(
+        f"  Blockwise Zstd (FP32)     : {bw_acc:.4f} (drop vs pruned {pruned_acc - bw_acc:+.4f})"
+    )
 
     print("\n[Storage — reference]")
     print(f"  FP32 weights (dense)      : {fmt_bytes(fp32_bytes)}")
 
     print("\n[Storage — layerwise]")
-    print(f"  Payload (W+b only)        : {fmt_bytes(lw_payload_bytes)}   ({ratio(fp32_bytes, lw_payload_bytes):.2f}x smaller)")
-    print(f"  Total file size           : {fmt_bytes(lw_file_bytes)}      ({ratio(fp32_bytes, lw_file_bytes):.2f}x smaller)")
+    print(
+        f"  Payload (W+b only)        : {fmt_bytes(lw_payload_bytes)}   ({ratio(fp32_bytes, lw_payload_bytes):.2f}x smaller)"
+    )
+    print(
+        f"  Total file size           : {fmt_bytes(lw_file_bytes)}      ({ratio(fp32_bytes, lw_file_bytes):.2f}x smaller)"
+    )
     print(f"  Overhead (meta)           : {fmt_bytes(lw_overhead_bytes)}")
     print(f"  Payload fraction          : {lw_payload_fraction*100:.2f}%")
     print(f"  Saved                      : {save_path_lw}")
 
     print("\n[Storage — blockwise]")
-    print(f"  Payload (W+b only)        : {fmt_bytes(bw_payload_bytes)}   ({ratio(fp32_bytes, bw_payload_bytes):.2f}x smaller)")
-    print(f"  Total file size           : {fmt_bytes(bw_file_bytes)}      ({ratio(fp32_bytes, bw_file_bytes):.2f}x smaller)")
+    print(
+        f"  Payload (W+b only)        : {fmt_bytes(bw_payload_bytes)}   ({ratio(fp32_bytes, bw_payload_bytes):.2f}x smaller)"
+    )
+    print(
+        f"  Total file size           : {fmt_bytes(bw_file_bytes)}      ({ratio(fp32_bytes, bw_file_bytes):.2f}x smaller)"
+    )
     print(f"  Overhead (meta)           : {fmt_bytes(bw_overhead_bytes)}")
     print(f"  Payload fraction          : {bw_payload_fraction*100:.2f}%")
     print(f"  Saved                      : {save_path_bw}")
@@ -279,9 +291,7 @@ def print_report(
 
 def main():
     device = get_device()
-    infer_device = torch.device(
-        "cpu"
-    )  # Run decompression/inference
+    infer_device = torch.device("cpu")  # Run decompression/inference
     loss_fn = nn.CrossEntropyLoss()
     test_loader = load_test_loader()
 
@@ -315,19 +325,25 @@ def main():
     save_layerwise_compressed(packed_lw, save_path_lw)
     compressed_lw = load_layerwise_compressed(save_path_lw)
 
-    packed_bw = export_blockwise_compressed(pruned_model, zstd_level=zstd_level, block_size=block_size)
+    packed_bw = export_blockwise_compressed(
+        pruned_model, zstd_level=zstd_level, block_size=block_size
+    )
     save_blockwise_compressed(packed_bw, save_path_bw)
     compressed_bw = load_blockwise_compressed(save_path_bw)
 
     # 4) Storage stats
     fp32_bytes = estimate_fp32_weight_bytes(pruned_model)
-    
+
     lw_payload_bytes = estimate_layerwise_payload_bytes(compressed_lw)
-    lw_file_bytes, lw_overhead_bytes, lw_payload_fraction = _file_stats(save_path_lw, lw_payload_bytes)
-    
+    lw_file_bytes, lw_overhead_bytes, lw_payload_fraction = _file_stats(
+        save_path_lw, lw_payload_bytes
+    )
+
     bw_payload_bytes = estimate_blockwise_payload_bytes(compressed_bw)
-    bw_file_bytes, bw_overhead_bytes, bw_payload_fraction = _file_stats(save_path_bw, bw_payload_bytes)
-    
+    bw_file_bytes, bw_overhead_bytes, bw_payload_fraction = _file_stats(
+        save_path_bw, bw_payload_bytes
+    )
+
     # 5) Accuracy via compressed inference
     lw_acc = layerwise_evaluate_accuracy(compressed_lw, test_loader, infer_device)
     bw_acc = blockwise_evaluate_accuracy(compressed_bw, test_loader, infer_device)
@@ -337,15 +353,19 @@ def main():
     peak_block_fp32_bytes = estimate_peak_decompressed_block_bytes_from_model(
         pruned_model, block_size
     )
-    
+
     # 7) Timing
-    t_base = measure_baseline_inference_time(base_model.to(infer_device), test_loader, infer_device)
+    t_base = measure_baseline_inference_time(
+        base_model.to(infer_device), test_loader, infer_device
+    )
     t_lw = measure_layerwise_inference_time(compressed_lw, test_loader, infer_device)
     t_bw = measure_blockwise_inference_time(compressed_bw, test_loader, infer_device)
 
     batch_size = test_loader.batch_size
     if batch_size is None or batch_size <= 0:
-        raise ValueError("test_loader.batch_size is None/invalid. Set a batch_size in load_test_loader().")
+        raise ValueError(
+            "test_loader.batch_size is None/invalid. Set a batch_size in load_test_loader()."
+        )
 
     t_base_ms_sample = (t_base * 1000.0) / batch_size
     t_lw_ms_sample = (t_lw * 1000.0) / batch_size

@@ -39,7 +39,7 @@ def blockwise_forward(
     # 1) Flatten input
     if x.dim() > 2:
         x = _flatten_input(x)
-    
+
     # If a single sample comes in, add batch dimension for consistent processing
     if x.dim() == 1:
         x = x.unsqueeze(0)
@@ -53,38 +53,44 @@ def blockwise_forward(
         if layer_type == "linear":
             out_features = int(entry["out_features"])
             block_size = int(entry["block_size"])
-            
+
             # Bias
             b = decompress_bias_fp32(entry)
             b = b.to(device) if b is not None else None
-            
+
             # Allocate output buffer for this layer
             # x shape: [batch_size, in_features]
             batch_size = x.size(0)
-            buffer = torch.empty((batch_size, out_features), device=device, dtype=x.dtype)
-            
+            buffer = torch.empty(
+                (batch_size, out_features), device=device, dtype=x.dtype
+            )
+
             # Loop weight blocks for this layer
             W_blocks_zstd = entry["W_blocks_zstd"]
             for block_idx in range(len(W_blocks_zstd)):
                 W_block = decompress_weight_block_fp32(entry, block_idx).to(device)
-                
+
                 # W_block shape: [block_out_features, in_features]
                 block_out_features = W_block.size(0)
-                
+
                 start = block_idx * block_size
-                end = start + block_out_features  # handles last block which may be smaller
-                
+                end = (
+                    start + block_out_features
+                )  # handles last block which may be smaller
+
                 # Compute block output: y_block = x @ W_block^T + b_block
                 bias_slice = b[start:end] if b is not None else None
                 y_block = F.linear(x, W_block, bias_slice)
-                buffer[:, start:end] = y_block  # write block output to correct slice of y
-                
+                buffer[:, start:end] = (
+                    y_block  # write block output to correct slice of y
+                )
+
                 # Discard decompressed block
                 del W_block, y_block
-                
+
             # After processing all blocks, y contains the full output of this Linear layer
             x = buffer  # set input for next layer
-            del buffer, b # free bias and output buffer for this layer
+            del buffer, b  # free bias and output buffer for this layer
 
         elif layer_type == "relu":
             x = F.relu(x)
