@@ -59,6 +59,34 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
+> Remember to change your Python Interpreter to the created environment.
+
+### Troubleshooting
+
+#### Resetting the virtual environment
+
+If your environment gets into a bad state, delete and recreate it:
+
+macOS / Linux / WSL:
+
+```bash
+deactivate  # if active
+rm -rf .venv
+python3 -m venv .venv
+source .venv/bin/activate
+make dev
+```
+
+Powershell:
+
+```bash
+deactivate  # if active (optional)
+Remove-Item -Recurse -Force .venv
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e ".[dev]"
+```
+
 ### Install the project
 
 #### With Make (Linux / macOS / WSL)
@@ -73,10 +101,18 @@ You can then verify that everything works:
 make check
 ```
 
+If `make check` shows an error, then run:
+
+```bash
+make format
+make check
+```
+
 Available Make commands:
 
 ```bash
-make install # Install project with dev dependencies
+make install # Install runtime dependencies only
+make dev # Install runtime + dev dependencies
 make format # Auto-format code (Black + Ruff fix)
 make lint # Check formatting without modifying files
 make test # Run pytest
@@ -206,6 +242,7 @@ BSc Software Technology, Technical University of Denmark (DTU)
 This project was developed as part of a Bachelor's thesis on memory-efficient neural network inference.
 
 The project builds upon:
+
 - PyTorch
 - Zstandard
 - NumPy
