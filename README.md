@@ -80,7 +80,7 @@ make dev
 Powershell:
 
 ```bash
-deactivate  # if active (optional)
+deactivate  # if active
 Remove-Item -Recurse -Force .venv
 python -m venv .venv
 .venv\Scripts\activate
