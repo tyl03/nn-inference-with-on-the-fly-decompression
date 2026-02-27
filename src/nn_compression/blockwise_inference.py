@@ -18,7 +18,10 @@ import time
 import torch
 import torch.nn.functional as F
 
-from nn_compression.export_compressed import decompress_linear_layer
+from nn_compression.blockwise_utils import (
+    decompress_bias_fp32,
+    decompress_weight_block_fp32,
+)
 
 
 def _flatten_input(x: torch.Tensor) -> torch.Tensor:
@@ -26,16 +29,20 @@ def _flatten_input(x: torch.Tensor) -> torch.Tensor:
 
 
 @torch.no_grad()
-def layerwise_forward(
+def blockwise_forward(
     compressed: dict, x: torch.Tensor, device: torch.device
 ) -> torch.Tensor:
     """
     Forward pass using a Zstd-compressed model dict.
-    Decompresses one Linear layer at a time.
+    Decompresses one block at a time.
     """
     # 1) Flatten input
     if x.dim() > 2:
         x = _flatten_input(x)
+    
+    # If a single sample comes in, add batch dimension for consistent processing
+    if x.dim() == 1:
+        x = x.unsqueeze(0)
 
     x = x.to(device)
 
@@ -44,16 +51,40 @@ def layerwise_forward(
         layer_type = entry["type"]
 
         if layer_type == "linear":
-            # Load compressed weights
-            W, b = decompress_linear_layer(entry)
-            W = W.to(device)
+            out_features = int(entry["out_features"])
+            block_size = int(entry["block_size"])
+            
+            # Bias
+            b = decompress_bias_fp32(entry)
             b = b.to(device) if b is not None else None
-
-            # Compute: x <- x @ W^T + b
-            x = F.linear(x, W, b)
-
-            # Discard decompressed weights
-            del W, b
+            
+            # Allocate output buffer for this layer
+            # x shape: [batch_size, in_features]
+            batch_size = x.size(0)
+            buffer = torch.empty((batch_size, out_features), device=device, dtype=x.dtype)
+            
+            # Loop weight blocks for this layer
+            W_blocks_zstd = entry["W_blocks_zstd"]
+            for block_idx in range(len(W_blocks_zstd)):
+                W_block = decompress_weight_block_fp32(entry, block_idx).to(device)
+                
+                # W_block shape: [block_out_features, in_features]
+                block_out_features = W_block.size(0)
+                
+                start = block_idx * block_size
+                end = start + block_out_features  # handles last block which may be smaller
+                
+                # Compute block output: y_block = x @ W_block^T + b_block
+                bias_slice = b[start:end] if b is not None else None
+                y_block = F.linear(x, W_block, bias_slice)
+                buffer[:, start:end] = y_block  # write block output to correct slice of y
+                
+                # Discard decompressed block
+                del W_block, y_block
+                
+            # After processing all blocks, y contains the full output of this Linear layer
+            x = buffer  # set input for next layer
+            del buffer, b # free bias and output buffer for this layer
 
         elif layer_type == "relu":
             x = F.relu(x)
@@ -65,18 +96,18 @@ def layerwise_forward(
 
 
 @torch.no_grad()
-def layerwise_evaluate_accuracy(
+def blockwise_evaluate_accuracy(
     compressed: dict, loader, device: torch.device
 ) -> float:
     """
-    Accuracy evaluation for a Zstd-compressed model using layerwise inference.
+    Accuracy evaluation for a Zstd-compressed model using blockwise inference.
     """
     correct = 0
     total = 0
 
     with torch.inference_mode():
         for x, y in loader:
-            logits = layerwise_forward(compressed, x, device)
+            logits = blockwise_forward(compressed, x, device)
             preds = logits.argmax(dim=1).cpu()
             correct += (preds == y).sum().item()
             total += y.numel()
@@ -85,7 +116,7 @@ def layerwise_evaluate_accuracy(
 
 
 @torch.no_grad()
-def measure_layerwise_inference_time(
+def measure_blockwise_inference_time(
     compressed: dict,
     loader,
     device: torch.device,
@@ -100,14 +131,14 @@ def measure_layerwise_inference_time(
     # warmup
     for _ in range(warmup_batches):
         x, _ = next(it)
-        _ = layerwise_forward(compressed, x, device)
+        _ = blockwise_forward(compressed, x, device)
 
     # timed
     times = []
     for _ in range(timed_batches):
         x, _ = next(it)
         t0 = time.perf_counter()
-        _ = layerwise_forward(compressed, x, device)
+        _ = blockwise_forward(compressed, x, device)
         t1 = time.perf_counter()
         times.append(t1 - t0)
 
