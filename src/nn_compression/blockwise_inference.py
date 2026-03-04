@@ -22,6 +22,7 @@ from nn_compression.blockwise_utils import (
     decompress_bias_fp32,
     decompress_weight_block_fp32,
 )
+from nn_compression.preprocess import preprocess_input
 
 
 def _flatten_input(x: torch.Tensor) -> torch.Tensor:
@@ -36,15 +37,15 @@ def blockwise_forward(
     Forward pass using a Zstd-compressed model dict.
     Decompresses one block at a time.
     """
-    # 1) Flatten input
-    if x.dim() > 2:
-        x = _flatten_input(x)
-
     # If a single sample comes in, add batch dimension for consistent processing
     if x.dim() == 1:
         x = x.unsqueeze(0)
 
-    x = x.to(device)
+    x = preprocess_input(x).to(device=device, dtype=torch.float32)
+
+    # 1) Flatten input
+    if x.dim() > 2:
+        x = _flatten_input(x)
 
     # 2) Process layers in order
     for entry in compressed["layers"]:

@@ -6,6 +6,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
+from nn_compression.preprocess import preprocess_input
+
 
 # One training epoch
 def train_one_epoch(
@@ -30,7 +32,7 @@ def train_one_epoch(
     total = 0
 
     for x, y in loader:
-        x = x.to(device)  # moves data to where computations happens
+        x = preprocess_input(x).to(device)  # moves data to where computations happens
         y = y.to(device)
 
         # 1) Forward pass (logits)
@@ -76,7 +78,7 @@ def evaluate(
 
     with torch.inference_mode():
         for x, y in loader:
-            x = x.to(device)
+            x = preprocess_input(x).to(device)
             y = y.to(device)
 
             logits = model(x)
