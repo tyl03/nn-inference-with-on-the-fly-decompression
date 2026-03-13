@@ -68,6 +68,81 @@ def estimate_peak_decompressed_layer_bytes(model: nn.Module) -> int:
     return peak
 
 
+def estimate_peak_runtime_layerwise_bytes(
+    model: nn.Module, batch_size: int
+) -> int:
+    """
+    Estimate peak runtime RAM for layerwise inference.
+
+    For one Linear layer, the main tensors in memory are:
+    - input activation x:        [B, in_features]
+    - output tensor y:           [B, out_features]
+    - full decompressed weight:  [out_features, in_features]
+    - bias:                      [out_features] (optional)
+
+    Returns the maximum estimated peak across all Linear layers.
+    """
+    peak = 0
+    B = int(batch_size)
+
+    for m in model.modules():
+        if isinstance(m, nn.Linear):
+            in_features = int(m.in_features)
+            out_features = int(m.out_features)
+
+            x_bytes = B * in_features * 4
+            y_bytes = B * out_features * 4
+            W_bytes = out_features * in_features * 4
+            bias_bytes = out_features * 4 if m.bias is not None else 0
+
+            layer_peak = x_bytes + y_bytes + W_bytes + bias_bytes
+            peak = max(peak, layer_peak)
+
+    return peak
+
+
+def estimate_peak_runtime_blockwise_bytes(
+    model: nn.Module, block_size: int, batch_size: int
+) -> int:
+    """
+    Estimate peak runtime RAM for blockwise inference.
+
+    For one block computation in a Linear layer, the main tensors in memory are:
+    - input activation x:             [B, in_features]
+    - output buffer for full layer:   [B, out_features]
+    - decompressed weight block:      [block_out, in_features]
+    - temporary block output:         [B, block_out]
+    - bias slice:                     [block_out] (optional)
+
+    Returns the maximum estimated peak across all Linear layers.
+    """
+    peak = 0
+    B = int(batch_size)
+
+    for m in model.modules():
+        if isinstance(m, nn.Linear):
+            in_features = int(m.in_features)
+            out_features = int(m.out_features)
+            block_out = min(block_size, out_features)
+
+            x_bytes = B * in_features * 4
+            buffer_bytes = B * out_features * 4
+            W_block_bytes = block_out * in_features * 4
+            y_block_bytes = B * block_out * 4
+            bias_bytes = block_out * 4 if m.bias is not None else 0
+
+            layer_peak = (
+                x_bytes
+                + buffer_bytes
+                + W_block_bytes
+                + y_block_bytes
+                + bias_bytes
+            )
+            peak = max(peak, layer_peak)
+
+    return peak
+
+
 def fmt_bytes(b: int) -> str:
     kb = b / 1024.0
     mb = kb / 1024.0

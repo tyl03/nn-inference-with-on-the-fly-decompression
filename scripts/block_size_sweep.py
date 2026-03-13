@@ -57,6 +57,44 @@ def estimate_peak_decompressed_block_bytes_from_model(
     return peak
 
 
+def estimate_peak_runtime_bytes_from_model(
+    model: nn.Module, block_size: int, batch_size: int
+) -> int:
+    """
+    Estimate peak RAM during blockwise inference (FP32), including key runtime tensors.
+
+    For each Linear layer, during one block computation we may have:
+    - input activation x:             [B, in_features]
+    - output buffer for full layer:   [B, out_features]
+    - decompressed W_block:           [block_out, in_features]
+    - y_block (temporary output):     [B, block_out]
+    - bias slice (optional):          [block_out]
+
+    Returns the maximum estimated peak across all Linear layers.
+    """
+    peak = 0
+    B = int(batch_size)
+
+    for layer in model.net:
+        if isinstance(layer, nn.Linear):
+            in_features = int(layer.in_features)
+            out_features = int(layer.out_features)
+            block_out = min(block_size, out_features)
+
+            x_bytes = B * in_features * 4
+            buffer_bytes = B * out_features * 4
+            W_block_bytes = block_out * in_features * 4
+            y_block_bytes = B * block_out * 4
+            bias_bytes = block_out * 4  # bias slice only
+
+            layer_peak = (
+                x_bytes + buffer_bytes + W_block_bytes + y_block_bytes + bias_bytes
+            )
+            peak = max(peak, layer_peak)
+
+    return peak
+
+
 def save_time_and_peak_block_chart(results, out_path: str) -> None:
     """
     Plot:
@@ -67,8 +105,8 @@ def save_time_and_peak_block_chart(results, out_path: str) -> None:
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     block_sizes = [r[0] for r in results]
-    peak_kb = [r[1] / 1024 for r in results]
-    ms_sample = [r[2] for r in results]
+    peak_runtime_kb = [r[2] / 1024 for r in results]
+    ms_sample = [r[3] for r in results]
 
     x_labels = [str(bs) for bs in block_sizes]
     x = list(range(len(block_sizes)))
@@ -96,14 +134,14 @@ def save_time_and_peak_block_chart(results, out_path: str) -> None:
     ax2 = ax1.twinx()
     ax2.bar(
         [i + width / 2 for i in x],
-        peak_kb,
+        peak_runtime_kb,
         width=width,
         color="tab:orange",
         alpha=0.85,
-        label="Peak block (KB)",
+        label="Peak runtime (KB)",
     )
 
-    ax2.set_ylabel("Peak block (KB)", color="tab:orange")
+    ax2.set_ylabel("Peak runtime (KB)", color="tab:orange")
     ax2.tick_params(axis="y", labelcolor="tab:orange")
 
     # Combine legends
@@ -111,7 +149,7 @@ def save_time_and_peak_block_chart(results, out_path: str) -> None:
     handles2, labels2 = ax2.get_legend_handles_labels()
     ax1.legend(handles1 + handles2, labels1 + labels2, loc="upper left")
 
-    ax1.set_title("Block Size Sweep: ms/sample vs Peak Block RAM")
+    ax1.set_title("Block Size Sweep: ms/sample vs Peak Runtime RAM")
 
     fig.tight_layout()
     fig.savefig(out_path, dpi=200)
@@ -129,7 +167,7 @@ def main():
 
     ckpt_path = "fcn_mnist_best.pt"
     prune_amount = 0.85
-    zstd_level = 7
+    zstd_level = 16
 
     block_sizes = [8, 16, 32, 64, 128, 256]
 
@@ -144,7 +182,9 @@ def main():
 
     print("\nBlock size sweep (essential metrics)")
     print("-" * 60)
-    print(f"{'bs':>4} | {'ms/sample':>16} | {'peak_block (KB)':>16}")
+    print(
+        f"{'bs':>4} | {'ms/sample':>16} | {'peak_Wblock (KB)':>16} | {'peak_runtime (KB)':>18}"
+    )
     print("-" * 60)
 
     results = []
@@ -157,6 +197,9 @@ def main():
         compressed = load_blockwise(save_path)
 
         peak_block_bytes = estimate_peak_decompressed_block_bytes_from_model(model, bs)
+        peak_runtime_bytes = estimate_peak_runtime_bytes_from_model(
+            model, bs, batch_size
+        )
 
         t_batch = measure_blockwise_inference_time(
             compressed, test_loader, infer_device
@@ -164,9 +207,11 @@ def main():
 
         ms_sample = (t_batch * 1000.0) / batch_size  # convert s/batch -> ms/sample
 
-        results.append((bs, peak_block_bytes, ms_sample))
+        results.append((bs, peak_block_bytes, peak_runtime_bytes, ms_sample))
 
-        print(f"{bs:4d} | {ms_sample:16.4f} | {peak_block_bytes/1024:16.1f}")
+        print(
+            f"{bs:4d} | {ms_sample:16.4f} | {peak_block_bytes/1024:16.1f} | {peak_runtime_bytes/1024:18.1f}"
+        )
 
     print("-" * 60)
 

@@ -11,7 +11,7 @@ Focus:
 - Accuracy
 - Storage footprint (compressed payload bytes)
 - Total file size + overhead bytes
-- Peak decompressed weights (RAM estimate)
+- Estimated peak runtime RAM
 - Inference time (avg per batch, CPU)
 """
 
@@ -44,7 +44,8 @@ from nn_compression.blockwise_inference import (
 from nn_compression.exp_utils import (
     build_model,
     estimate_fp32_weight_bytes,
-    estimate_peak_decompressed_layer_bytes,
+    estimate_peak_runtime_blockwise_bytes,
+    estimate_peak_runtime_layerwise_bytes,
     fmt_bytes,
     get_device,
     load_test_loader,
@@ -83,12 +84,12 @@ def save_ram_vs_latency_barchart(
     bw_latency_ms_sample: float,
     lw_peak_kb: float,
     bw_peak_kb: float,
-    title: str = "Layerwise vs Blockwise: Latency vs Peak RAM (CPU)",
+    title: str = "Layerwise vs Blockwise: Latency vs Estimated Runtime RAM (CPU)",
 ) -> None:
     """
     Grouped bar chart with two y-axes:
       - Left axis: latency (ms/sample)
-      - Right axis: peak RAM (KB)
+      - Right axis: estimated runtime RAM (KB)
     """
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
@@ -124,9 +125,9 @@ def save_ram_vs_latency_barchart(
         width=width,
         color="tab:orange",
         alpha=0.85,
-        label="Peak RAM (KB)",
+        label="Estimated runtime RAM (KB)",
     )
-    ax2.set_ylabel("Peak RAM (KB)", color="tab:orange")
+    ax2.set_ylabel("Estimated runtime RAM (KB)", color="tab:orange")
     ax2.tick_params(axis="y", labelcolor="tab:orange")
 
     # One combined legend
@@ -145,29 +146,6 @@ def save_ram_vs_latency_barchart(
     fig.tight_layout(rect=[0, 0, 1, 0.92])
     fig.savefig(out_path, dpi=200)
     plt.close(fig)
-
-
-def estimate_peak_decompressed_block_bytes_from_model(
-    model: nn.Module, block_size: int
-) -> int:
-    """
-    Peak decompressed weights for blockwise inference (FP32), estimated from model layer shapes.
-
-    For each Linear layer:
-      block_out = min(block_size, out_features)
-      bytes = block_out * in_features * 4   (FP32)
-
-    Returns the maximum across layers.
-    """
-    peak = 0
-    for layer in model.net:
-        if isinstance(layer, nn.Linear):
-            in_features = int(layer.in_features)
-            out_features = int(layer.out_features)
-            block_out = min(block_size, out_features)
-            block_bytes = block_out * in_features * 4
-            peak = max(peak, block_bytes)
-    return peak
 
 
 @torch.no_grad()
@@ -220,8 +198,9 @@ def print_report(
     bw_file_bytes: int,
     bw_overhead_bytes: int,
     bw_payload_fraction: float,
-    peak_layer_fp32_bytes: int,
-    peak_block_fp32_bytes: int,
+    peak_layer_runtime_bytes: int,
+    peak_block_runtime_bytes: int,
+    runtime_batch_size: int,
     t_base_ms_sample: float,
     t_lw_ms_sample: float,
     t_bw_ms_sample: float,
@@ -277,9 +256,10 @@ def print_report(
     print(f"  Payload fraction          : {bw_payload_fraction*100:.2f}%")
     print(f"  Saved                      : {save_path_bw}")
 
-    print("\n[Peak decompressed weights (RAM estimate)]")
-    print(f"  Largest layer (FP32)      : {fmt_bytes(peak_layer_fp32_bytes)}")
-    print(f"  Largest block (FP32)      : {fmt_bytes(peak_block_fp32_bytes)}")
+    print("\n[Estimated Peak Runtime RAM]")
+    print(f"  Layerwise inference       : {fmt_bytes(peak_layer_runtime_bytes)}")
+    print(f"  Blockwise inference       : {fmt_bytes(peak_block_runtime_bytes)}")
+    print(f"  RAM batch size used       : {runtime_batch_size}")
 
     print("\n[Timing — average inference latency per sample (CPU)]")
     print(f"  Baseline FP32 forward     : {t_base_ms_sample:.4f} ms/sample")
@@ -298,7 +278,7 @@ def main():
     ckpt_path = "fcn_mnist_best.pt"
 
     prune_amount = 0.85
-    zstd_level = 7
+    zstd_level = 16
     block_size = 32
 
     # 1) Baseline FP32 accuracy
@@ -348,10 +328,20 @@ def main():
     lw_acc = layerwise_evaluate_accuracy(compressed_lw, test_loader, infer_device)
     bw_acc = blockwise_evaluate_accuracy(compressed_bw, test_loader, infer_device)
 
-    # 6) RAM estimate for peak decompressed layer
-    peak_layer_fp32_bytes = estimate_peak_decompressed_layer_bytes(pruned_model)
-    peak_block_fp32_bytes = estimate_peak_decompressed_block_bytes_from_model(
-        pruned_model, block_size
+    # 6) Estimated peak runtime RAM for both methods
+    runtime_batch_size = test_loader.batch_size  # CHANGED: use the same batch size as the MNIST test loader
+
+    if runtime_batch_size is None or runtime_batch_size <= 0:  # NEW: safety check
+        raise ValueError(
+            "test_loader.batch_size is None/invalid. Set a valid batch_size in load_test_loader()."
+        )
+
+    peak_layer_runtime_bytes = estimate_peak_runtime_layerwise_bytes(
+        pruned_model, runtime_batch_size
+    )
+
+    peak_block_runtime_bytes = estimate_peak_runtime_blockwise_bytes(
+        pruned_model, block_size, runtime_batch_size
     )
 
     # 7) Timing
@@ -372,17 +362,17 @@ def main():
     t_bw_ms_sample = (t_bw * 1000.0) / batch_size
 
     # Peak RAM numbers in KB (for plot)
-    lw_peak_kb = peak_layer_fp32_bytes / 1024.0
-    bw_peak_kb = peak_block_fp32_bytes / 1024.0
+    lw_peak_kb = peak_layer_runtime_bytes / 1024.0
+    bw_peak_kb = peak_block_runtime_bytes / 1024.0
 
-    plot_path = "results/zstd/plots/ram_vs_latency_layerwise_vs_blockwise_bars.png"
+    plot_path = "results/zstd/plots/runtime_ram_vs_latency_layerwise_vs_blockwise_bars.png"
     save_ram_vs_latency_barchart(
         out_path=plot_path,
         lw_latency_ms_sample=t_lw_ms_sample,
         bw_latency_ms_sample=t_bw_ms_sample,
         lw_peak_kb=lw_peak_kb,
         bw_peak_kb=bw_peak_kb,
-        title="Layerwise vs Blockwise: Latency vs Peak RAM (ms/sample, CPU)",
+        title="Layerwise vs Blockwise: Latency vs Estimated Runtime RAM (ms/sample, CPU)",
     )
     print(f"Saved plot: {plot_path}")
 
@@ -406,8 +396,9 @@ def main():
         bw_file_bytes=bw_file_bytes,
         bw_overhead_bytes=bw_overhead_bytes,
         bw_payload_fraction=bw_payload_fraction,
-        peak_layer_fp32_bytes=peak_layer_fp32_bytes,
-        peak_block_fp32_bytes=peak_block_fp32_bytes,
+        peak_layer_runtime_bytes=peak_layer_runtime_bytes,
+        peak_block_runtime_bytes=peak_block_runtime_bytes,
+        runtime_batch_size=runtime_batch_size,
         t_base_ms_sample=t_base_ms_sample,
         t_lw_ms_sample=t_lw_ms_sample,
         t_bw_ms_sample=t_bw_ms_sample,

@@ -9,6 +9,7 @@ src/nn_compression/exp_utils.py
 src/nn_compression/export_compressed.py
 src/nn_compression/fcn.py
 src/nn_compression/layerwise_inference.py
+src/nn_compression/preprocess.py
 src/nn_compression/pruning.py
 src/nn_compression/tensor_bytes_utils.py
 src/nn_compression/training.py
@@ -19,6 +20,8 @@ src/nn_compression.egg-info/dependency_links.txt
 src/nn_compression.egg-info/requires.txt
 src/nn_compression.egg-info/top_level.txt
 tests/test_blockwise.py
+tests/test_blockwise_forward_matches.py
+tests/test_blockwise_roundtrip.py
 tests/test_fcn.py
 tests/test_pruning.py
 tests/test_smoke_training.py
