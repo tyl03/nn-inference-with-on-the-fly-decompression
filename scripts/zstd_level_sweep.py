@@ -133,7 +133,7 @@ def main():
     plt.title("Zstd level vs compressed payload size")
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig("results/zstd/zstd_payload_vs_level.png", dpi=200)
+    plt.savefig("results/zstd/zstd_payload_vs_level.pdf", bbox_inches="tight")
 
     # Plot 2: Compression/Decompression time vs Zstd level
     plt.figure()
@@ -145,9 +145,9 @@ def main():
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    plt.savefig("results/zstd/zstd_time_vs_level.png", dpi=200)
+    plt.savefig("results/zstd/zstd_time_vs_level.pdf", bbox_inches="tight")
 
-    print("Saved plots: zstd_payload_vs_level.png and zstd_time_vs_level.png")
+    print("Saved plots: zstd_payload_vs_level.pdf and zstd_time_vs_level.pdf")
 
 
 if __name__ == "__main__":

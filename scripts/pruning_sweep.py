@@ -96,7 +96,7 @@ def main():
     plt.title("Accuracy Drop vs Sparsity")
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig("results/pruning/accuracy_drop_vs_sparsity.png", dpi=200)
+    plt.savefig("results/pruning/accuracy_drop_vs_sparsity.pdf", bbox_inches="tight")
 
     print("\nSaved pruning plot in results/pruning/")
 

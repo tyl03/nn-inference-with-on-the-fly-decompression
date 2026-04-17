@@ -1,14 +1,16 @@
 """
-Blockwise inference utilities for Zstd-compressed FCN exports.
+Blockwise inference utilities for Zstd-compressed exports.
 
-Assumptions:
-- Compressed format produced by src.export_compressed.export_fcn_to_compressed()
-- Model is an FCN with model.net = [Linear/ReLU/.../Linear]
-- Linear payload stores FP32 bytes compressed with zstd (lossless)
+Supports:
+- Linear layers with blockwise decompression
+- Convolution layers with blockwise decompression over output filters
+- ReLU
+- MaxPool2d
+- Flatten
 
 Key idea:
-- During inference, decompress ONE block at a time, compute, discard, repeat until
-  until all blocks for one layer is processed, then proceed to the next layer.
+- During inference, decompress ONE block at a time, compute, discard it,
+  and continue until the full layer output has been reconstructed.
 """
 
 from __future__ import annotations
@@ -20,13 +22,10 @@ import torch.nn.functional as F
 
 from nn_compression.blockwise_utils import (
     decompress_bias_fp32,
+    decompress_conv_weight_block_fp32,
     decompress_weight_block_fp32,
 )
 from nn_compression.preprocess import preprocess_input
-
-
-def _flatten_input(x: torch.Tensor) -> torch.Tensor:
-    return x.view(x.size(0), -1)
 
 
 @torch.no_grad()
@@ -42,12 +41,12 @@ def blockwise_forward(
         x = x.unsqueeze(0)
 
     x = preprocess_input(x).to(device=device, dtype=torch.float32)
+    
+    first_layer_type = compressed["layers"][0]["type"]
+    if first_layer_type == "linear" and x.dim() > 2:
+        x = x.view(x.size(0), -1)
 
-    # 1) Flatten input
-    if x.dim() > 2:
-        x = _flatten_input(x)
-
-    # 2) Process layers in order
+    # Process layers in order
     for entry in compressed["layers"]:
         layer_type = entry["type"]
 
@@ -92,9 +91,72 @@ def blockwise_forward(
             # After processing all blocks, y contains the full output of this Linear layer
             x = buffer  # set input for next layer
             del buffer, b  # free bias and output buffer for this layer
+            
+        elif layer_type == "conv":
+            # Blockwise convolution over output-channel blocks / filter blocks
+            out_channels = int(entry["out_channels"])
+
+            # Decompress full bias only once for the whole conv layer
+            b_full = decompress_bias_fp32(entry)
+            b_full = b_full.to(device) if b_full is not None else None
+
+            batch_size = x.size(0)
+            output = None
+            start = 0
+
+            W_blocks_zstd = entry["W_blocks_zstd"]
+            for block_idx in range(len(W_blocks_zstd)):
+                # Use conv-specific block decompression
+                W_block = decompress_conv_weight_block_fp32(entry, block_idx).to(device)
+
+                block_out_channels = W_block.size(0)
+                end = start + block_out_channels
+
+                b_block = b_full[start:end] if b_full is not None else None
+
+                y_block = F.conv2d(
+                    x,
+                    W_block,
+                    bias=b_block,
+                    stride=entry.get("stride", 1),
+                    padding=entry.get("padding", 0),
+                )
+
+                # Allocate output tensor once we know spatial output size
+                if output is None:
+                    output = torch.empty(
+                        (batch_size, out_channels, y_block.size(2), y_block.size(3)),
+                        device=device,
+                        dtype=x.dtype,
+                    )
+
+                # Write into explicit channel slice
+                output[:, start:end, :, :] = y_block
+
+                start = end
+
+                # Discard decompressed block
+                del W_block, y_block
+
+            x = output
+            del output, b_full
 
         elif layer_type == "relu":
             x = F.relu(x)
+            
+        elif layer_type == "pool":
+            # Ensure tuple format for consistency
+            kernel_size = tuple(entry.get("kernel_size", (2, 2)))
+            stride = tuple(entry.get("stride", kernel_size))
+
+            x = F.max_pool2d(
+                x,
+                kernel_size=kernel_size,
+                stride=stride,
+            )
+            
+        elif layer_type == "flatten":
+            x = x.view(x.size(0), -1)
 
         else:
             raise ValueError(f"Unknown layer type in compressed model: {layer_type}")

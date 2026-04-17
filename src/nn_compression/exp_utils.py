@@ -11,12 +11,13 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from .export_compressed import (
+from .blockwise_export_compressed import (
     estimate_compressed_payload_bytes,
     export_fcn_to_compressed,
     load_compressed,
     save_compressed,
 )
+from .cnn import CNN
 from .fcn import FCN
 
 
@@ -35,12 +36,33 @@ def load_test_loader(batch_size: int = 256) -> DataLoader:
 
 
 # MODEL HELPERS
-def build_model(device: torch.device) -> FCN:
-    return FCN(
-        in_dim=28 * 28,
-        hidden_dims=[512, 256],
-        out_dim=10,
-    ).to(device)
+def build_model(device: torch.device, model_type: str = "fcn") -> nn.Module:
+    """
+    Build either an FCN or CNN model for MNIST.
+    """
+    if model_type == "fcn":
+        model = FCN(
+            in_dim=28 * 28,
+            hidden_dims=[512, 256],
+            out_dim=10,
+        )
+
+    elif model_type == "cnn":
+        model = CNN(
+            in_channels=1,
+            input_height=28,
+            input_width=28,
+            conv_channels=[8, 16],
+            kernel_size=3,
+            pool_kernel_size=2,
+            fc_hidden_dims=[64],
+            out_dim=10,
+        )
+
+    else:
+        raise ValueError(f"Unknown model_type: {model_type}")
+
+    return model.to(device)
 
 
 def load_weights(model: nn.Module, ckpt_path: str, device: torch.device) -> nn.Module:
@@ -51,18 +73,26 @@ def load_weights(model: nn.Module, ckpt_path: str, device: torch.device) -> nn.M
 
 # STORAGE ESTIMATES
 def estimate_fp32_weight_bytes(model: nn.Module) -> int:
+    """
+    Estimate total FP32 weight storage in bytes for learned layers.
+    Supports Linear and Conv2d.
+    """
     total = 0
     for m in model.modules():
-        if isinstance(m, nn.Linear):
+        if isinstance(m, (nn.Linear, nn.Conv2d)):
             total += m.weight.numel() * 4  # float32 = 4 bytes
 
     return total
 
 
 def estimate_peak_decompressed_layer_bytes(model: nn.Module) -> int:
+    """
+    Estimate peak decompressed weight size for layerwise inference.
+    Supports Linear and Conv2d.
+    """
     peak = 0
     for m in model.modules():
-        if isinstance(m, nn.Linear):
+        if isinstance(m, (nn.Linear, nn.Conv2d)):
             peak = max(peak, m.weight.numel() * 4)
 
     return peak
@@ -74,16 +104,26 @@ def estimate_peak_runtime_layerwise_bytes(
     """
     Estimate peak runtime RAM for layerwise inference.
 
-    For one Linear layer, the main tensors in memory are:
+    Linear layer:
     - input activation x:        [B, in_features]
     - output tensor y:           [B, out_features]
     - full decompressed weight:  [out_features, in_features]
     - bias:                      [out_features] (optional)
 
-    Returns the maximum estimated peak across all Linear layers.
+    Conv2d layer:
+    - input activation x:        [B, in_channels, H, W]
+    - output tensor y:           [B, out_channels, H_out, W_out]
+    - full decompressed weight:  [out_channels, in_channels, k_h, k_w]
+    - bias:                      [out_channels] (optional)
+
+    Returns the maximum estimated peak across supported layers.
     """
     peak = 0
     B = int(batch_size)
+
+    # Start from MNIST image size
+    current_h = 28
+    current_w = 28
 
     for m in model.modules():
         if isinstance(m, nn.Linear):
@@ -98,6 +138,47 @@ def estimate_peak_runtime_layerwise_bytes(
             layer_peak = x_bytes + y_bytes + W_bytes + bias_bytes
             peak = max(peak, layer_peak)
 
+        elif isinstance(m, nn.Conv2d):
+            in_channels = int(m.in_channels)
+            out_channels = int(m.out_channels)
+
+            if isinstance(m.kernel_size, int):
+                k_h = k_w = m.kernel_size
+            else:
+                k_h, k_w = m.kernel_size
+
+            if isinstance(m.padding, int):
+                p_h = p_w = m.padding
+            else:
+                p_h, p_w = m.padding
+
+            if isinstance(m.stride, int):
+                s_h = s_w = m.stride
+            else:
+                s_h, s_w = m.stride
+
+            H_out = (current_h + 2 * p_h - k_h) // s_h + 1
+            W_out = (current_w + 2 * p_w - k_w) // s_w + 1
+
+            x_bytes = B * in_channels * current_h * current_w * 4
+            y_bytes = B * out_channels * H_out * W_out * 4
+            W_bytes = out_channels * in_channels * k_h * k_w * 4
+            bias_bytes = out_channels * 4 if m.bias is not None else 0
+
+            layer_peak = x_bytes + y_bytes + W_bytes + bias_bytes
+            peak = max(peak, layer_peak)
+
+            current_h, current_w = H_out, W_out
+
+        elif isinstance(m, nn.MaxPool2d):
+            if isinstance(m.kernel_size, int):
+                pool_k = m.kernel_size
+            else:
+                pool_k = m.kernel_size[0]
+
+            current_h = current_h // pool_k
+            current_w = current_w // pool_k
+
     return peak
 
 
@@ -107,17 +188,27 @@ def estimate_peak_runtime_blockwise_bytes(
     """
     Estimate peak runtime RAM for blockwise inference.
 
-    For one block computation in a Linear layer, the main tensors in memory are:
+    Linear layer block:
     - input activation x:             [B, in_features]
     - output buffer for full layer:   [B, out_features]
     - decompressed weight block:      [block_out, in_features]
     - temporary block output:         [B, block_out]
     - bias slice:                     [block_out] (optional)
 
-    Returns the maximum estimated peak across all Linear layers.
+    Conv2d layer block:
+    - input activation x:             [B, in_channels, H, W]
+    - output buffer for full layer:   [B, out_channels, H_out, W_out]
+    - decompressed weight block:      [block_out, in_channels, k_h, k_w]
+    - temporary block output:         [B, block_out, H_out, W_out]
+    - bias slice:                     [block_out] (optional)
+
+    Returns the maximum estimated peak across supported layers.
     """
     peak = 0
     B = int(batch_size)
+
+    current_h = 28
+    current_w = 28
 
     for m in model.modules():
         if isinstance(m, nn.Linear):
@@ -139,6 +230,55 @@ def estimate_peak_runtime_blockwise_bytes(
                 + bias_bytes
             )
             peak = max(peak, layer_peak)
+
+        elif isinstance(m, nn.Conv2d):
+            in_channels = int(m.in_channels)
+            out_channels = int(m.out_channels)
+            block_out = min(block_size, out_channels)
+
+            if isinstance(m.kernel_size, int):
+                k_h = k_w = m.kernel_size
+            else:
+                k_h, k_w = m.kernel_size
+
+            if isinstance(m.padding, int):
+                p_h = p_w = m.padding
+            else:
+                p_h, p_w = m.padding
+
+            if isinstance(m.stride, int):
+                s_h = s_w = m.stride
+            else:
+                s_h, s_w = m.stride
+
+            H_out = (current_h + 2 * p_h - k_h) // s_h + 1
+            W_out = (current_w + 2 * p_w - k_w) // s_w + 1
+
+            x_bytes = B * in_channels * current_h * current_w * 4
+            buffer_bytes = B * out_channels * H_out * W_out * 4
+            W_block_bytes = block_out * in_channels * k_h * k_w * 4
+            y_block_bytes = B * block_out * H_out * W_out * 4
+            bias_bytes = block_out * 4 if m.bias is not None else 0
+
+            layer_peak = (
+                x_bytes
+                + buffer_bytes
+                + W_block_bytes
+                + y_block_bytes
+                + bias_bytes
+            )
+            peak = max(peak, layer_peak)
+
+            current_h, current_w = H_out, W_out
+
+        elif isinstance(m, nn.MaxPool2d):
+            if isinstance(m.kernel_size, int):
+                pool_k = m.kernel_size
+            else:
+                pool_k = m.kernel_size[0]
+
+            current_h = current_h // pool_k
+            current_w = current_w // pool_k
 
     return peak
 

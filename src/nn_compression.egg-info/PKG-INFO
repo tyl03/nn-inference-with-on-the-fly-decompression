@@ -31,11 +31,11 @@ Classifier: License :: OSI Approved :: MIT License
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 License-File: LICENSE
-Requires-Dist: torch>=1.8.0
-Requires-Dist: torchvision>=0.9.0
-Requires-Dist: numpy>=1.19.0
-Requires-Dist: matplotlib>=3.3.0
-Requires-Dist: zstandard>=0.23.0
+Requires-Dist: torch==2.9.1
+Requires-Dist: torchvision==0.24.1
+Requires-Dist: numpy<3,>=2
+Requires-Dist: matplotlib<4,>=3.7
+Requires-Dist: zstandard==0.25.0
 Provides-Extra: dev
 Requires-Dist: pytest>=7.4.0; extra == "dev"
 Requires-Dist: black>=24.0.0; extra == "dev"

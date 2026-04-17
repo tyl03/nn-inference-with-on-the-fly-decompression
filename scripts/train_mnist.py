@@ -40,7 +40,7 @@ def plot_training_curves(
     plt.ylabel("Loss")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("results/training/training_loss.png", dpi=200)
+    plt.savefig("results/training/training_loss.pdf", bbox_inches="tight")
     plt.close()
 
     # Accuracy plot
@@ -51,7 +51,7 @@ def plot_training_curves(
     plt.ylabel("Accuracy")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("results/training/training_accuracy.png", dpi=200)
+    plt.savefig("results/training/training_accuracy.pdf", bbox_inches="tight")
     plt.close()
 
 

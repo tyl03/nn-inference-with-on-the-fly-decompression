@@ -140,7 +140,7 @@ def main():
         "cpu"
     )  # Layerwise inference on CPU to highlight time differences
     loss_fn = nn.CrossEntropyLoss()
-    test_loader = load_test_loader()
+    test_loader = load_test_loader(batch_size=1)
 
     ckpt_path = "fcn_mnist_best.pt"
 

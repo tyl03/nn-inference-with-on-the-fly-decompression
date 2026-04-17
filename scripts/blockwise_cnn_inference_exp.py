@@ -1,11 +1,11 @@
 """
-Layerwise vs Blockwise inference experiment (MNIST) using Zstandard-compressed FP32 weights.
+Baseline vs Blockwise CNN inference experiment (MNIST) using Zstandard-compressed FP32 weights.
+
+CNN version.
 
 Compares:
-- Baseline FP32 inference
-- Pruned FP32 inference
-- Layerwise Zstd inference (decompress one layer at a time)
-- Blockwise Zstd inference (decompress one block at a time)
+- Baseline FP32 CNN inference
+- Blockwise Zstd CNN inference (decompress one block at a time)
 
 Focus:
 - Accuracy
@@ -24,7 +24,6 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 
-# Blockwise exports
 from nn_compression.blockwise_export_compressed import (
     estimate_compressed_payload_bytes as estimate_blockwise_payload_bytes,
 )
@@ -45,34 +44,10 @@ from nn_compression.exp_utils import (
     build_model,
     estimate_fp32_weight_bytes,
     estimate_peak_runtime_blockwise_bytes,
-    estimate_peak_runtime_layerwise_bytes,
     fmt_bytes,
     get_device,
     load_test_loader,
     load_weights,
-)
-
-# Layerwise exports
-from nn_compression.export_compressed import (
-    estimate_compressed_payload_bytes as estimate_layerwise_payload_bytes,
-)
-from nn_compression.export_compressed import (
-    export_fcn_to_compressed as export_layerwise_compressed,
-)
-from nn_compression.export_compressed import (
-    load_compressed as load_layerwise_compressed,
-)
-from nn_compression.export_compressed import (
-    save_compressed as save_layerwise_compressed,
-)
-from nn_compression.layerwise_inference import (
-    layerwise_evaluate_accuracy,
-    measure_layerwise_inference_time,
-)
-from nn_compression.pruning import (
-    global_magnitude_prune_linear_layers,
-    make_pruning_permanent,
-    model_sparsity,
 )
 from nn_compression.training import evaluate
 
@@ -80,11 +55,11 @@ from nn_compression.training import evaluate
 def save_ram_vs_latency_barchart(
     *,
     out_path: str,
-    lw_latency_ms_sample: float,
+    base_latency_ms_sample: float,
     bw_latency_ms_sample: float,
-    lw_peak_kb: float,
+    base_peak_kb: float,
     bw_peak_kb: float,
-    title: str = "Layerwise vs Blockwise: Latency vs Estimated Runtime RAM (CPU)",
+    title: str = "CNN Baseline vs Blockwise: Latency vs Estimated Runtime RAM (CPU)",
 ) -> None:
     """
     Grouped bar chart with two y-axes:
@@ -93,16 +68,15 @@ def save_ram_vs_latency_barchart(
     """
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
-    labels = ["Layerwise", "Blockwise"]
-    latency = [lw_latency_ms_sample, bw_latency_ms_sample]
-    peak_kb = [lw_peak_kb, bw_peak_kb]
+    labels = ["Baseline", "Blockwise"]
+    latency = [base_latency_ms_sample, bw_latency_ms_sample]
+    peak_kb = [base_peak_kb, bw_peak_kb]
 
     x = list(range(len(labels)))
     width = 0.38
 
     fig, ax1 = plt.subplots()
 
-    # Latency bars (left axis)
     ax1.bar(
         [i - width / 2 for i in x],
         latency,
@@ -117,7 +91,6 @@ def save_ram_vs_latency_barchart(
     ax1.set_xticks(x)
     ax1.set_xticklabels(labels)
 
-    # Peak RAM bars (right axis)
     ax2 = ax1.twinx()
     ax2.bar(
         [i + width / 2 for i in x],
@@ -130,10 +103,8 @@ def save_ram_vs_latency_barchart(
     ax2.set_ylabel("Estimated runtime RAM (KB)", color="tab:orange")
     ax2.tick_params(axis="y", labelcolor="tab:orange")
 
-    # One combined legend
     h1, l1 = ax1.get_legend_handles_labels()
     h2, l2 = ax2.get_legend_handles_labels()
-
     ax1.legend(
         h1 + h2,
         l1 + l2,
@@ -152,6 +123,9 @@ def save_ram_vs_latency_barchart(
 def measure_baseline_inference_time(
     model, loader, device, warmup_batches=5, timed_batches=30
 ):
+    """
+    Returns avg forward time per batch (seconds) for the baseline FP32 model.
+    """
     model.eval()
     it = iter(loader)
 
@@ -171,79 +145,126 @@ def measure_baseline_inference_time(
 
 
 def _file_stats(path: str, payload_bytes: int) -> tuple[int, int, float]:
-    """Return (file_bytes, overhead_bytes, payload_fraction)."""
     file_bytes = os.path.getsize(path)
     overhead_bytes = file_bytes - payload_bytes
     payload_fraction = payload_bytes / file_bytes if file_bytes > 0 else 0.0
     return file_bytes, overhead_bytes, payload_fraction
 
 
+def estimate_baseline_runtime_bytes(model: nn.Module, batch_size: int) -> int:
+    """
+    Estimate peak runtime RAM for the baseline FP32 CNN model.
+
+    This is a rough estimate for comparison against blockwise inference.
+
+    Supports:
+    - Conv2d
+    - Linear
+
+    Assumes MNIST input size: 1 x 28 x 28
+    """
+    peak = 0
+    B = int(batch_size)
+
+    current_h = 28
+    current_w = 28
+
+    for m in model.modules():
+        if isinstance(m, nn.Conv2d):
+            in_channels = int(m.in_channels)
+            out_channels = int(m.out_channels)
+
+            if isinstance(m.kernel_size, int):
+                k_h = k_w = m.kernel_size
+            else:
+                k_h, k_w = m.kernel_size
+
+            if isinstance(m.padding, int):
+                p_h = p_w = m.padding
+            else:
+                p_h, p_w = m.padding
+
+            if isinstance(m.stride, int):
+                s_h = s_w = m.stride
+            else:
+                s_h, s_w = m.stride
+
+            H_out = (current_h + 2 * p_h - k_h) // s_h + 1
+            W_out = (current_w + 2 * p_w - k_w) // s_w + 1
+
+            x_bytes = B * in_channels * current_h * current_w * 4
+            y_bytes = B * out_channels * H_out * W_out * 4
+            W_bytes = out_channels * in_channels * k_h * k_w * 4
+            bias_bytes = out_channels * 4 if m.bias is not None else 0
+
+            layer_peak = x_bytes + y_bytes + W_bytes + bias_bytes
+            peak = max(peak, layer_peak)
+
+            current_h, current_w = H_out, W_out
+
+        elif isinstance(m, nn.MaxPool2d):
+            if isinstance(m.kernel_size, int):
+                pool_k = m.kernel_size
+            else:
+                pool_k = m.kernel_size[0]
+
+            current_h = current_h // pool_k
+            current_w = current_w // pool_k
+
+        elif isinstance(m, nn.Linear):
+            in_features = int(m.in_features)
+            out_features = int(m.out_features)
+
+            x_bytes = B * in_features * 4
+            y_bytes = B * out_features * 4
+            W_bytes = out_features * in_features * 4
+            bias_bytes = out_features * 4 if m.bias is not None else 0
+
+            layer_peak = x_bytes + y_bytes + W_bytes + bias_bytes
+            peak = max(peak, layer_peak)
+
+    return peak
+
+
 def print_report(
     *,
     ckpt_path: str,
-    prune_amount: float,
-    sparsity_pct: float,
     zstd_level: int,
     block_size: int,
     base_acc: float,
-    pruned_acc: float,
-    lw_acc: float,
     bw_acc: float,
     fp32_bytes: int,
-    lw_payload_bytes: int,
-    lw_file_bytes: int,
-    lw_overhead_bytes: int,
-    lw_payload_fraction: float,
     bw_payload_bytes: int,
     bw_file_bytes: int,
     bw_overhead_bytes: int,
     bw_payload_fraction: float,
-    peak_layer_runtime_bytes: int,
+    peak_base_runtime_bytes: int,
     peak_block_runtime_bytes: int,
     runtime_batch_size: int,
     t_base_ms_sample: float,
-    t_lw_ms_sample: float,
     t_bw_ms_sample: float,
-    save_path_lw: str,
     save_path_bw: str,
 ) -> None:
     def ratio(a: int, b: int) -> float:
         return (a / b) if b > 0 else float("inf")
 
     print("\n" + "=" * 94)
-    print("Layerwise vs Blockwise Inference Experiment (MNIST) — Zstd FP32".center(94))
+    print("Baseline vs Blockwise CNN Inference Experiment (MNIST) — Zstd FP32".center(94))
     print("=" * 94)
 
     print("\n[Setup]")
     print(f"  Checkpoint     : {ckpt_path}")
-    print(f"  Prune amount   : {prune_amount:.2f}")
-    print(f"  Sparsity       : {sparsity_pct:.2f}%")
     print(f"  Zstd level     : {zstd_level}")
     print(f"  Block size     : {block_size}")
 
     print("\n[Accuracy]")
     print(f"  Baseline FP32             : {base_acc:.4f}")
-    print(f"  Pruned FP32               : {pruned_acc:.4f}")
     print(
-        f"  Layerwise Zstd (FP32)     : {lw_acc:.4f} (drop vs pruned {pruned_acc - lw_acc:+.4f})"
-    )
-    print(
-        f"  Blockwise Zstd (FP32)     : {bw_acc:.4f} (drop vs pruned {pruned_acc - bw_acc:+.4f})"
+        f"  Blockwise Zstd (FP32)     : {bw_acc:.4f} (drop vs baseline {base_acc - bw_acc:+.4f})"
     )
 
     print("\n[Storage — reference]")
     print(f"  FP32 weights (dense)      : {fmt_bytes(fp32_bytes)}")
-
-    print("\n[Storage — layerwise]")
-    print(
-        f"  Payload (W+b only)        : {fmt_bytes(lw_payload_bytes)}   ({ratio(fp32_bytes, lw_payload_bytes):.2f}x smaller)"
-    )
-    print(
-        f"  Total file size           : {fmt_bytes(lw_file_bytes)}      ({ratio(fp32_bytes, lw_file_bytes):.2f}x smaller)"
-    )
-    print(f"  Overhead (meta)           : {fmt_bytes(lw_overhead_bytes)}")
-    print(f"  Payload fraction          : {lw_payload_fraction*100:.2f}%")
-    print(f"  Saved                      : {save_path_lw}")
 
     print("\n[Storage — blockwise]")
     print(
@@ -254,16 +275,15 @@ def print_report(
     )
     print(f"  Overhead (meta)           : {fmt_bytes(bw_overhead_bytes)}")
     print(f"  Payload fraction          : {bw_payload_fraction*100:.2f}%")
-    print(f"  Saved                      : {save_path_bw}")
+    print(f"  Saved                     : {save_path_bw}")
 
     print("\n[Estimated Peak Runtime RAM]")
-    print(f"  Layerwise inference       : {fmt_bytes(peak_layer_runtime_bytes)}")
+    print(f"  Baseline FP32 inference   : {fmt_bytes(peak_base_runtime_bytes)}")
     print(f"  Blockwise inference       : {fmt_bytes(peak_block_runtime_bytes)}")
     print(f"  RAM batch size used       : {runtime_batch_size}")
 
     print("\n[Timing — average inference latency per sample (CPU)]")
     print(f"  Baseline FP32 forward     : {t_base_ms_sample:.4f} ms/sample")
-    print(f"  Layerwise Zstd forward    : {t_lw_ms_sample:.4f} ms/sample")
     print(f"  Blockwise Zstd forward    : {t_bw_ms_sample:.4f} ms/sample")
 
     print("=" * 94 + "\n")
@@ -271,84 +291,62 @@ def print_report(
 
 def main():
     device = get_device()
-    infer_device = torch.device("cpu")  # Run decompression/inference
+    infer_device = torch.device("cpu")
     loss_fn = nn.CrossEntropyLoss()
     test_loader = load_test_loader(batch_size=1)
 
-    ckpt_path = "fcn_mnist_best.pt"
+    ckpt_path = "cnn_mnist_best.pt"
 
-    prune_amount = 0.85
+    # Use the selected block size from the sweep here
     zstd_level = 16
-    block_size = 32
+    block_size = 4
 
     # 1) Baseline FP32 accuracy
-    base_model = build_model(device)
+    base_model = build_model(device, model_type="cnn")
     load_weights(base_model, ckpt_path, device)
     _, base_accuracy = evaluate(base_model, test_loader, loss_fn, device)
 
-    # 2) Pruned FP32 accuracy
-    pruned_model = build_model(device)
-    load_weights(pruned_model, ckpt_path, device)
-
-    global_magnitude_prune_linear_layers(pruned_model, amount=prune_amount)
-    make_pruning_permanent(pruned_model)
-
-    _, pruned_accuracy = evaluate(pruned_model, test_loader, loss_fn, device)
-    sparsity_pct = model_sparsity(pruned_model) * 100.0
-
-    # 3) Export both compressed formats
+    # 2) Export blockwise compressed CNN
     os.makedirs("results/zstd", exist_ok=True)
-    save_path_lw = f"results/zstd/fcn_mnist_pruned_{int(prune_amount*100)}_layerwise_zstd{zstd_level}.pt"
-    save_path_bw = f"results/zstd/fcn_mnist_pruned_{int(prune_amount*100)}_blockwise_bs{block_size}_zstd{zstd_level}.pt"
-
-    packed_lw = export_layerwise_compressed(pruned_model, zstd_level=zstd_level)
-    save_layerwise_compressed(packed_lw, save_path_lw)
-    compressed_lw = load_layerwise_compressed(save_path_lw)
+    save_path_bw = (
+        f"results/zstd/cnn_mnist_blockwise_bs{block_size}_zstd{zstd_level}.pt"
+    )
 
     packed_bw = export_blockwise_compressed(
-        pruned_model, zstd_level=zstd_level, block_size=block_size
+        base_model, zstd_level=zstd_level, block_size=block_size
     )
     save_blockwise_compressed(packed_bw, save_path_bw)
     compressed_bw = load_blockwise_compressed(save_path_bw)
 
-    # 4) Storage stats
-    fp32_bytes = estimate_fp32_weight_bytes(pruned_model)
-
-    lw_payload_bytes = estimate_layerwise_payload_bytes(compressed_lw)
-    lw_file_bytes, lw_overhead_bytes, lw_payload_fraction = _file_stats(
-        save_path_lw, lw_payload_bytes
-    )
+    # 3) Storage stats
+    fp32_bytes = estimate_fp32_weight_bytes(base_model)
 
     bw_payload_bytes = estimate_blockwise_payload_bytes(compressed_bw)
     bw_file_bytes, bw_overhead_bytes, bw_payload_fraction = _file_stats(
         save_path_bw, bw_payload_bytes
     )
 
-    # 5) Accuracy via compressed inference
-    lw_acc = layerwise_evaluate_accuracy(compressed_lw, test_loader, infer_device)
+    # 4) Accuracy via blockwise compressed inference
     bw_acc = blockwise_evaluate_accuracy(compressed_bw, test_loader, infer_device)
 
-    # 6) Estimated peak runtime RAM for both methods
-    runtime_batch_size = test_loader.batch_size  
-
-    if runtime_batch_size is None or runtime_batch_size <= 0: 
+    # 5) Estimated peak runtime RAM
+    runtime_batch_size = test_loader.batch_size
+    if runtime_batch_size is None or runtime_batch_size <= 0:
         raise ValueError(
             "test_loader.batch_size is None/invalid. Set a valid batch_size in load_test_loader()."
         )
 
-    peak_layer_runtime_bytes = estimate_peak_runtime_layerwise_bytes(
-        pruned_model, runtime_batch_size
+    peak_base_runtime_bytes = estimate_baseline_runtime_bytes(
+        base_model, runtime_batch_size
     )
-
     peak_block_runtime_bytes = estimate_peak_runtime_blockwise_bytes(
-        pruned_model, block_size, runtime_batch_size
+        base_model, block_size, runtime_batch_size
     )
 
-    # 7) Timing
+    # 6) Timing
     t_base = measure_baseline_inference_time(
         base_model.to(infer_device), test_loader, infer_device
     )
-    t_lw = measure_layerwise_inference_time(compressed_lw, test_loader, infer_device)
     t_bw = measure_blockwise_inference_time(compressed_bw, test_loader, infer_device)
 
     batch_size = test_loader.batch_size
@@ -358,51 +356,39 @@ def main():
         )
 
     t_base_ms_sample = (t_base * 1000.0) / batch_size
-    t_lw_ms_sample = (t_lw * 1000.0) / batch_size
     t_bw_ms_sample = (t_bw * 1000.0) / batch_size
 
     # Peak RAM numbers in KB (for plot)
-    lw_peak_kb = peak_layer_runtime_bytes / 1024.0
+    base_peak_kb = peak_base_runtime_bytes / 1024.0
     bw_peak_kb = peak_block_runtime_bytes / 1024.0
 
-    plot_path = "results/zstd/plots/runtime_ram_vs_latency_layerwise_vs_blockwise_bars.pdf"
+    plot_path = "results/zstd/plots/cnn_runtime_ram_vs_latency_baseline_vs_blockwise_bars.pdf"
     save_ram_vs_latency_barchart(
         out_path=plot_path,
-        lw_latency_ms_sample=t_lw_ms_sample,
+        base_latency_ms_sample=t_base_ms_sample,
         bw_latency_ms_sample=t_bw_ms_sample,
-        lw_peak_kb=lw_peak_kb,
+        base_peak_kb=base_peak_kb,
         bw_peak_kb=bw_peak_kb,
-        title="Layerwise vs Blockwise: Latency vs Estimated Runtime RAM (ms/sample, CPU)",
+        title="CNN Baseline vs Blockwise: Latency vs Estimated Runtime RAM (ms/sample, CPU)",
     )
     print(f"Saved plot: {plot_path}")
 
-    # Report
     print_report(
         ckpt_path=ckpt_path,
-        prune_amount=prune_amount,
-        sparsity_pct=sparsity_pct,
         zstd_level=zstd_level,
         block_size=block_size,
         base_acc=base_accuracy,
-        pruned_acc=pruned_accuracy,
-        lw_acc=lw_acc,
         bw_acc=bw_acc,
         fp32_bytes=fp32_bytes,
-        lw_payload_bytes=lw_payload_bytes,
-        lw_file_bytes=lw_file_bytes,
-        lw_overhead_bytes=lw_overhead_bytes,
-        lw_payload_fraction=lw_payload_fraction,
         bw_payload_bytes=bw_payload_bytes,
         bw_file_bytes=bw_file_bytes,
         bw_overhead_bytes=bw_overhead_bytes,
         bw_payload_fraction=bw_payload_fraction,
-        peak_layer_runtime_bytes=peak_layer_runtime_bytes,
+        peak_base_runtime_bytes=peak_base_runtime_bytes,
         peak_block_runtime_bytes=peak_block_runtime_bytes,
         runtime_batch_size=runtime_batch_size,
         t_base_ms_sample=t_base_ms_sample,
-        t_lw_ms_sample=t_lw_ms_sample,
         t_bw_ms_sample=t_bw_ms_sample,
-        save_path_lw=save_path_lw,
         save_path_bw=save_path_bw,
     )
 

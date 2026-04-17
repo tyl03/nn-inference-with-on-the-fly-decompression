@@ -152,7 +152,7 @@ def save_time_and_peak_block_chart(results, out_path: str) -> None:
     ax1.set_title("Block Size Sweep: ms/sample vs Peak Runtime RAM")
 
     fig.tight_layout()
-    fig.savefig(out_path, dpi=200)
+    fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -161,7 +161,7 @@ def main():
     infer_device = torch.device(
         "cpu"
     )  # blockwise inference on CPU for realistic timing
-    test_loader = load_test_loader()
+    test_loader = load_test_loader(batch_size=1)
 
     batch_size = test_loader.batch_size
 
@@ -215,7 +215,7 @@ def main():
 
     print("-" * 60)
 
-    plot_path = "results/zstd/sweeps/ms_sample_vs_peakblock.png"
+    plot_path = "results/zstd/sweeps/ms_sample_vs_peakblock.pdf"
     save_time_and_peak_block_chart(results, plot_path)
     print(f"Saved plot: {plot_path}")
     print("-" * 60)
