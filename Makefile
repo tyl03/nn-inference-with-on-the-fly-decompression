@@ -6,11 +6,11 @@ torch-cpu:
 
 # Install non-torch runtime dependencies
 base-deps:
-	python -m pip install numpy>=2,<3 matplotlib>=3.7,<4 zstandard==0.25.0
+	python -m pip install "numpy>=2,<3" "matplotlib>=3.7,<4" "zstandard==0.25.0"
 
 # Install non-torch dev dependencies
 dev-deps:
-	python -m pip install pytest==8.4.0 black>=24.0.0 ruff>=0.4.0 setuptools==80.9.0
+	python -m pip install "pytest==8.4.0" "black>=24.0.0" "ruff>=0.4.0" "setuptools==80.9.0"
 
 # One-time setup
 install: torch-cpu base-deps

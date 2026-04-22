@@ -5,6 +5,7 @@ src/nn_compression/__init__.py
 src/nn_compression/blockwise_export_compressed.py
 src/nn_compression/blockwise_inference.py
 src/nn_compression/blockwise_utils.py
+src/nn_compression/cnn.py
 src/nn_compression/exp_utils.py
 src/nn_compression/export_compressed.py
 src/nn_compression/fcn.py

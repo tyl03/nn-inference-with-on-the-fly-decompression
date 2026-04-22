@@ -5,6 +5,7 @@ CNN version.
 
 Compares:
 - Baseline FP32 CNN inference
+- Pruned FP32 CNN inference
 - Blockwise Zstd CNN inference (decompress one block at a time)
 
 Focus:
@@ -48,6 +49,11 @@ from nn_compression.exp_utils import (
     get_device,
     load_test_loader,
     load_weights,
+)
+from nn_compression.pruning import (
+    global_magnitude_prune_conv_and_linear_layers,
+    make_pruning_permanent,
+    model_sparsity,
 )
 from nn_compression.training import evaluate
 
@@ -114,6 +120,7 @@ def save_ram_vs_latency_barchart(
         frameon=True,
     )
 
+    fig.suptitle(title)
     fig.tight_layout(rect=[0, 0, 1, 0.92])
     fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)
@@ -229,9 +236,12 @@ def estimate_baseline_runtime_bytes(model: nn.Module, batch_size: int) -> int:
 def print_report(
     *,
     ckpt_path: str,
+    prune_amount: float,
+    sparsity_pct: float,
     zstd_level: int,
     block_size: int,
     base_acc: float,
+    pruned_acc: float,
     bw_acc: float,
     fp32_bytes: int,
     bw_payload_bytes: int,
@@ -242,8 +252,10 @@ def print_report(
     peak_block_runtime_bytes: int,
     runtime_batch_size: int,
     t_base_ms_sample: float,
+    t_pruned_ms_sample: float,
     t_bw_ms_sample: float,
     save_path_bw: str,
+    plot_path: str,
 ) -> None:
     def ratio(a: int, b: int) -> float:
         return (a / b) if b > 0 else float("inf")
@@ -254,13 +266,16 @@ def print_report(
 
     print("\n[Setup]")
     print(f"  Checkpoint     : {ckpt_path}")
+    print(f"  Prune amount   : {prune_amount:.2f}")
+    print(f"  Sparsity       : {sparsity_pct:.2f}%")
     print(f"  Zstd level     : {zstd_level}")
     print(f"  Block size     : {block_size}")
 
     print("\n[Accuracy]")
     print(f"  Baseline FP32             : {base_acc:.4f}")
+    print(f"  Pruned FP32               : {pruned_acc:.4f}")
     print(
-        f"  Blockwise Zstd (FP32)     : {bw_acc:.4f} (drop vs baseline {base_acc - bw_acc:+.4f})"
+        f"  Blockwise Zstd (FP32)     : {bw_acc:.4f} (drop vs pruned {pruned_acc - bw_acc:+.4f})"
     )
 
     print("\n[Storage — reference]")
@@ -275,7 +290,7 @@ def print_report(
     )
     print(f"  Overhead (meta)           : {fmt_bytes(bw_overhead_bytes)}")
     print(f"  Payload fraction          : {bw_payload_fraction*100:.2f}%")
-    print(f"  Saved                     : {save_path_bw}")
+    print(f"  Saved model               : {save_path_bw}")
 
     print("\n[Estimated Peak Runtime RAM]")
     print(f"  Baseline FP32 inference   : {fmt_bytes(peak_base_runtime_bytes)}")
@@ -284,7 +299,11 @@ def print_report(
 
     print("\n[Timing — average inference latency per sample (CPU)]")
     print(f"  Baseline FP32 forward     : {t_base_ms_sample:.4f} ms/sample")
+    print(f"  Pruned FP32 forward       : {t_pruned_ms_sample:.4f} ms/sample")
     print(f"  Blockwise Zstd forward    : {t_bw_ms_sample:.4f} ms/sample")
+
+    print("\n[Saved figure]")
+    print(f"  PDF plot                  : {plot_path}")
 
     print("=" * 94 + "\n")
 
@@ -297,7 +316,7 @@ def main():
 
     ckpt_path = "cnn_mnist_best.pt"
 
-    # Use the selected block size from the sweep here
+    prune_amount = 0.70
     zstd_level = 16
     block_size = 4
 
@@ -306,30 +325,42 @@ def main():
     load_weights(base_model, ckpt_path, device)
     _, base_accuracy = evaluate(base_model, test_loader, loss_fn, device)
 
-    # 2) Export blockwise compressed CNN
+    # 2) Pruned FP32 CNN
+    pruned_model = build_model(device, model_type="cnn")
+    load_weights(pruned_model, ckpt_path, device)
+
+    global_magnitude_prune_conv_and_linear_layers(pruned_model, amount=prune_amount)
+    make_pruning_permanent(pruned_model)
+
+    _, pruned_accuracy = evaluate(pruned_model, test_loader, loss_fn, device)
+    sparsity_pct = model_sparsity(pruned_model) * 100.0
+
+    # 3) Export blockwise compressed PRUNED CNN
     os.makedirs("results/zstd", exist_ok=True)
+
+    # IMPORTANT: this is a PyTorch data file, so it must stay .pt
     save_path_bw = (
-        f"results/zstd/cnn_mnist_blockwise_bs{block_size}_zstd{zstd_level}.pt"
+        f"results/zstd/cnn_mnist_pruned_{int(prune_amount*100)}_blockwise_bs{block_size}_zstd{zstd_level}.pt"
     )
 
     packed_bw = export_blockwise_compressed(
-        base_model, zstd_level=zstd_level, block_size=block_size
+        pruned_model, zstd_level=zstd_level, block_size=block_size
     )
     save_blockwise_compressed(packed_bw, save_path_bw)
     compressed_bw = load_blockwise_compressed(save_path_bw)
 
-    # 3) Storage stats
-    fp32_bytes = estimate_fp32_weight_bytes(base_model)
+    # 4) Storage stats
+    fp32_bytes = estimate_fp32_weight_bytes(pruned_model)
 
     bw_payload_bytes = estimate_blockwise_payload_bytes(compressed_bw)
     bw_file_bytes, bw_overhead_bytes, bw_payload_fraction = _file_stats(
         save_path_bw, bw_payload_bytes
     )
 
-    # 4) Accuracy via blockwise compressed inference
+    # 5) Accuracy via blockwise compressed inference
     bw_acc = blockwise_evaluate_accuracy(compressed_bw, test_loader, infer_device)
 
-    # 5) Estimated peak runtime RAM
+    # 6) Estimated peak runtime RAM
     runtime_batch_size = test_loader.batch_size
     if runtime_batch_size is None or runtime_batch_size <= 0:
         raise ValueError(
@@ -339,14 +370,20 @@ def main():
     peak_base_runtime_bytes = estimate_baseline_runtime_bytes(
         base_model, runtime_batch_size
     )
+
     peak_block_runtime_bytes = estimate_peak_runtime_blockwise_bytes(
-        base_model, block_size, runtime_batch_size
+        pruned_model, block_size, runtime_batch_size
     )
 
-    # 6) Timing
+    # 7) Timing
     t_base = measure_baseline_inference_time(
         base_model.to(infer_device), test_loader, infer_device
     )
+
+    t_pruned = measure_baseline_inference_time(
+        pruned_model.to(infer_device), test_loader, infer_device
+    )
+
     t_bw = measure_blockwise_inference_time(compressed_bw, test_loader, infer_device)
 
     batch_size = test_loader.batch_size
@@ -356,13 +393,18 @@ def main():
         )
 
     t_base_ms_sample = (t_base * 1000.0) / batch_size
+    t_pruned_ms_sample = (t_pruned * 1000.0) / batch_size
     t_bw_ms_sample = (t_bw * 1000.0) / batch_size
 
     # Peak RAM numbers in KB (for plot)
     base_peak_kb = peak_base_runtime_bytes / 1024.0
     bw_peak_kb = peak_block_runtime_bytes / 1024.0
 
-    plot_path = "results/zstd/plots/cnn_runtime_ram_vs_latency_baseline_vs_blockwise_bars.pdf"
+    # 8) Save the ACTUAL PDF figure here
+    plot_path = (
+        "results/zstd/plots/"
+        f"cnn_runtime_ram_vs_latency_baseline_vs_blockwise_pruned{int(prune_amount*100)}_bs{block_size}.pdf"
+    )
     save_ram_vs_latency_barchart(
         out_path=plot_path,
         base_latency_ms_sample=t_base_ms_sample,
@@ -375,9 +417,12 @@ def main():
 
     print_report(
         ckpt_path=ckpt_path,
+        prune_amount=prune_amount,
+        sparsity_pct=sparsity_pct,
         zstd_level=zstd_level,
         block_size=block_size,
         base_acc=base_accuracy,
+        pruned_acc=pruned_accuracy,
         bw_acc=bw_acc,
         fp32_bytes=fp32_bytes,
         bw_payload_bytes=bw_payload_bytes,
@@ -388,8 +433,10 @@ def main():
         peak_block_runtime_bytes=peak_block_runtime_bytes,
         runtime_batch_size=runtime_batch_size,
         t_base_ms_sample=t_base_ms_sample,
+        t_pruned_ms_sample=t_pruned_ms_sample,
         t_bw_ms_sample=t_bw_ms_sample,
         save_path_bw=save_path_bw,
+        plot_path=plot_path,
     )
 
 
